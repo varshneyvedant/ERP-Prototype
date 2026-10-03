@@ -120,8 +120,13 @@ export async function POST(request: Request) {
           remainingToDeduct -= deductAmount;
       }
 
-      // Cost per ton of finished wire = Total Raw Cost / Wire Produced (factors in scrap loss)
-      const costPerTonFinished = parsedProduced > 0 ? ((totalRawCost + Number(estimatedOverhead)) / parsedProduced) : 0;
+      // Calculate Scrap Salvage Value (Estimated at ₹450,000 per ton of scrap)
+      const scrapGenerated = parsedRaw - parsedProduced;
+      const scrapSalvageValue = scrapGenerated * 450000;
+      const totalRawCostLessScrap = Math.max(0, totalRawCost - scrapSalvageValue);
+
+      // Cost per ton of finished wire = (Total Raw Cost - Scrap Salvage + Overhead) / Wire Produced
+      const costPerTonFinished = parsedProduced > 0 ? ((totalRawCostLessScrap + Number(estimatedOverhead)) / parsedProduced) : 0;
 
       const production = await tx.production.create({
         data: {
@@ -132,7 +137,7 @@ export async function POST(request: Request) {
           wireType: wireType || '',
           wireProduced: parsedProduced,
           estimatedOverhead: Number(estimatedOverhead),
-          scrapGenerated: parsedRaw - parsedProduced,
+          scrapGenerated: scrapGenerated,
           finishedGoodsBatch: {
              create: {
                 date: recordDate,
@@ -151,20 +156,25 @@ export async function POST(request: Request) {
          data: {
             date: recordDate,
             type: 'GENERATED',
-            qty: parsedRaw - parsedProduced
+            qty: scrapGenerated
          }
       });
 
       // Post Double-Entry Journal Entry
+      const lines = [
+        { accountName: 'Inventory - Finished Goods', accountType: 'ASSET' as const, debit: totalRawCostLessScrap, credit: 0 },
+        { accountName: 'Inventory - Raw Materials', accountType: 'ASSET' as const, debit: 0, credit: totalRawCost }
+      ];
+      if (scrapSalvageValue > 0) {
+        lines.push({ accountName: 'Inventory - Scrap', accountType: 'ASSET' as const, debit: scrapSalvageValue, credit: 0 });
+      }
+
       await postJournalEntry(tx, {
         date: recordDate,
         description: `Production Run: Produced ${parsedProduced}T ${productCategory} from ${parsedRaw}T Raw Copper (ID: ${production.id})`,
         referenceType: 'PRODUCTION' as any,
         referenceId: production.id,
-        lines: [
-          { accountName: 'Inventory - Finished Goods', accountType: 'ASSET' as const, debit: totalRawCost, credit: 0 },
-          { accountName: 'Inventory - Raw Materials', accountType: 'ASSET' as const, debit: 0, credit: totalRawCost }
-        ]
+        lines: lines
       });
 
       return production;

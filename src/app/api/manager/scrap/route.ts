@@ -152,6 +152,7 @@ export async function POST(request: Request) {
            date: recordDate,
            amount: parsedRev,
            type: 'INCOMING',
+           scrapSaleId: scrapSale.id,
            description: `Sale of Scrap Copper (${parsedQty} Tons)`
         }
       });

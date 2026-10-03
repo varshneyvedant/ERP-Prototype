@@ -221,11 +221,31 @@ export async function POST(request: Request) {
         }
       }
 
+      let initialAmountPaid = 0;
+      let initialFullyPaidDate = null;
+      let consumedCredit = 0;
+      const availableCredit = Number(customer.creditBalance || 0);
+
+      if (availableCredit > 0) {
+         consumedCredit = Math.min(availableCredit, grandTotal);
+         initialAmountPaid = consumedCredit;
+         if (initialAmountPaid >= grandTotal) {
+             initialFullyPaidDate = recordDate;
+         }
+         
+         await tx.customer.update({
+             where: { id: customerId },
+             data: { creditBalance: { decrement: consumedCredit } }
+         });
+      }
+
       const sale = await tx.sale.create({
         data: {
           customerId,
           date: recordDate,
           totalValue: grandTotal,
+          amountPaid: initialAmountPaid,
+          fullyPaidDate: initialFullyPaidDate,
           items: {
             create: saleItemsData
           }
@@ -240,6 +260,17 @@ export async function POST(request: Request) {
           description: `Invoice Sale ID: ${sale.id} (${items.length} items)`
         }
       });
+
+      if (consumedCredit > 0) {
+         await tx.customerLedger.create({
+            data: {
+               customerId,
+               date: recordDate,
+               amount: -consumedCredit,
+               description: `Overpayment Credit Applied to Invoice ID: ${sale.id}`
+            }
+         });
+      }
 
       // Post Double-Entry Journal Entry
       const customerName = customer.name;

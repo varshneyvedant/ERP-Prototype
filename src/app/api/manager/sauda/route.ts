@@ -1,4 +1,4 @@
-﻿import { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { prisma } from '@/lib/prisma';
@@ -63,6 +63,30 @@ export async function POST(request: Request) {
 
     if (rateNum <= 0 || qtyNum <= 0) {
       return NextResponse.json({ error: 'Rate and Quantity must be positive numbers' }, { status: 400 });
+    }
+
+    const contractValue = qtyNum * (rateNum * 1000); // 1 Ton = 1000 Kg
+    
+    // Check Credit Limit (Protect against infinite booking exploit)
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+      include: {
+        sales: { where: { isDeleted: false } },
+        payments: { where: { status: 'APPROVED' } }
+      }
+    });
+    if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
+
+    const totalInvoiced = customer.sales.reduce((sum, s) => sum + Number(s.totalValue), 0);
+    const totalPaid = customer.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const currentBalance = totalInvoiced - totalPaid;
+    const creditLimit = Number(customer.creditLimit || 7000000);
+
+    // Only Owner can bypass credit limit checks for Sauda
+    if (role !== 'owner' && (currentBalance + contractValue) > creditLimit) {
+      return NextResponse.json({ 
+        error: `Booking this Sauda (Value: ₹${contractValue.toLocaleString('en-IN')}) would exceed the customer's remaining credit limit of ₹${(creditLimit - currentBalance).toLocaleString('en-IN')}. Owner authorization required.`
+      }, { status: 400 });
     }
 
     const contractNo = `SAU-${Date.now().toString().slice(-6)}`;

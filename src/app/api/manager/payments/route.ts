@@ -56,6 +56,10 @@ export async function DELETE(request: Request) {
        });
        if (!payment) throw new Error('Payment record not found');
 
+       if (payment.status === 'APPROVED' && role !== 'owner') {
+         throw new Error('Only the Owner can reverse an approved payment.');
+       }
+
        // Assert period not locked
        await assertPeriodNotLocked(payment.date);
 

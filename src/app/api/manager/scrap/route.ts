@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { getStartDateFromTimeframe, Timeframe } from '@/lib/timeframe';
 import { logAudit } from '@/lib/audit/logger';
 import { postJournalEntry } from '@/lib/ledger/journal';
+import { assertPeriodNotLocked } from '@/lib/periodLock';
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
@@ -99,6 +100,9 @@ export async function POST(request: Request) {
     const parsedQty = qty;
     const parsedRev = revenue || 0;
     const recordDate = date ? new Date(date) : new Date();
+    await assertPeriodNotLocked(recordDate);
+
+    const chemQty = body.chemicalLossQty && Number(body.chemicalLossQty) > 0 ? Number(body.chemicalLossQty) : 0;
 
     const result = await prisma.$transaction(async (tx) => {
       const allScrap = await tx.scrapInventory.findMany({ where: { isDeleted: false } });
@@ -107,10 +111,20 @@ export async function POST(request: Request) {
          if (s.type === "GENERATED") currentHolding += Number(s.qty);
          if (s.type === "SOLD" || s.type === "PROCESS_LOSS_ADJUSTMENT") currentHolding -= Number(s.qty);
       });
-      
-      if (parsedQty > currentHolding + 0.001) {
-         throw new Error(`Cannot record ${parsedQty}T of scrap. Only ${currentHolding.toFixed(2)}T available in system.`);
+
+      const totalOut = parsedQty + (type === "PROCESS_LOSS_ADJUSTMENT" ? 0 : chemQty);
+      if (totalOut > currentHolding + 0.001) {
+         throw new Error(`Cannot record ${totalOut}T of scrap. Only ${currentHolding.toFixed(2)}T available in system.`);
       }
+
+      // Book value of scrap asset in the GL -> weighted-average cost per ton to relieve
+      const scrapAgg = await tx.journalLine.aggregate({
+        where: { accountName: 'Inventory - Scrap' },
+        _sum: { debit: true, credit: true }
+      });
+      const scrapBookValue = Number(scrapAgg._sum.debit || 0) - Number(scrapAgg._sum.credit || 0);
+      const costPerScrapTon = currentHolding > 0.001 && scrapBookValue > 0 ? scrapBookValue / currentHolding : 0;
+      const round2 = (n: number) => Math.round(n * 100) / 100;
 
       if (type === "PROCESS_LOSS_ADJUSTMENT") {
         const lossRecord = await tx.scrapInventory.create({
@@ -121,6 +135,19 @@ export async function POST(request: Request) {
             notes: notes || "Chemical & Process Burning Loss write-off"
           }
         });
+        const lossValue = round2(parsedQty * costPerScrapTon);
+        if (lossValue > 0) {
+          await postJournalEntry(tx, {
+            date: recordDate,
+            description: `Scrap process-loss write-off: ${parsedQty}T`,
+            referenceType: 'SCRAP_SALE' as any,
+            referenceId: lossRecord.id,
+            lines: [
+              { accountName: 'Process Loss Expense', accountType: 'EXPENSE', debit: lossValue, credit: 0 },
+              { accountName: 'Inventory - Scrap', accountType: 'ASSET', debit: 0, credit: lossValue }
+            ]
+          });
+        }
         return lossRecord;
       }
 
@@ -134,10 +161,9 @@ export async function POST(request: Request) {
         }
       });
 
-      // If user also specified a chemical loss adjustment gap in the sale form
-      if (body.chemicalLossQty && Number(body.chemicalLossQty) > 0) {
-        const chemQty = Number(body.chemicalLossQty);
-        await tx.scrapInventory.create({
+      let chemLossValue = 0;
+      if (chemQty > 0) {
+        const chemRecord = await tx.scrapInventory.create({
           data: {
             type: "PROCESS_LOSS_ADJUSTMENT",
             qty: chemQty,
@@ -145,6 +171,7 @@ export async function POST(request: Request) {
             notes: `Process / Chemical loss identified during scrap sale of ${parsedQty}T`
           }
         });
+        chemLossValue = round2(chemQty * costPerScrapTon);
       }
 
       await tx.paymentRecord.create({
@@ -157,15 +184,30 @@ export async function POST(request: Request) {
         }
       });
 
+      const costRelieved = round2(parsedQty * costPerScrapTon);
+      const saleLines: { accountName: string; accountType: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'; debit: number; credit: number; }[] = [
+        { accountName: 'Cash & Bank', accountType: 'ASSET', debit: parsedRev, credit: 0 },
+        { accountName: 'Scrap Revenue', accountType: 'REVENUE', debit: 0, credit: parsedRev }
+      ];
+      if (costRelieved > 0) {
+        saleLines.push(
+          { accountName: 'Cost of Scrap Sold', accountType: 'EXPENSE', debit: costRelieved, credit: 0 },
+          { accountName: 'Inventory - Scrap', accountType: 'ASSET', debit: 0, credit: costRelieved }
+        );
+      }
+      if (chemLossValue > 0) {
+        saleLines.push(
+          { accountName: 'Process Loss Expense', accountType: 'EXPENSE', debit: chemLossValue, credit: 0 },
+          { accountName: 'Inventory - Scrap', accountType: 'ASSET', debit: 0, credit: chemLossValue }
+        );
+      }
+
       await postJournalEntry(tx, {
         date: recordDate,
         description: `Scrap Sale: ${parsedQty}T at ₹${parsedRev}`,
         referenceType: 'SCRAP_SALE' as any,
         referenceId: scrapSale.id,
-        lines: [
-          { accountName: 'Cash & Bank', accountType: 'ASSET' as const, debit: parsedRev, credit: 0 },
-          { accountName: 'Scrap Revenue', accountType: 'REVENUE' as const, debit: 0, credit: parsedRev }
-        ]
+        lines: saleLines
       });
 
       return scrapSale;

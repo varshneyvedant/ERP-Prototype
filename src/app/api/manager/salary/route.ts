@@ -1,101 +1,110 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import { z } from 'zod';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { prisma } from '@/lib/prisma';
 import { logAudit } from '@/lib/audit/logger';
 import { assertPeriodNotLocked } from '@/lib/periodLock';
 import { postJournalEntry } from '@/lib/ledger/journal';
 
+const SalaryPostSchema = z.object({
+  employeeId: z.string().uuid(),
+  amountToPay: z.coerce.number().min(0).max(100_000_000),
+  deductAdvanceAmount: z.coerce.number().min(0).max(100_000_000).optional().default(0),
+  monthYear: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'monthYear must be YYYY-MM'),
+});
+
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
-  if (!session?.user || !['manager', 'owner'].includes((session.user as any).role?.toLowerCase())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // Salary is cash leaving the business -> Owner only (no approval workflow exists for it yet).
+  if (!session?.user || (session.user as any).role?.toLowerCase() !== 'owner') {
+    return NextResponse.json({ error: 'Unauthorized: Owner role required to process salary.' }, { status: 401 });
   }
 
   try {
-    const { employeeId, amountToPay, deductAdvanceAmount, monthYear } = await request.json();
-    if (!employeeId || !amountToPay || !monthYear) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    const parsed = SalaryPostSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid data', details: parsed.error.format() }, { status: 400 });
+    }
+    const { employeeId, amountToPay, deductAdvanceAmount, monthYear } = parsed.data;
+
+    if (amountToPay + deductAdvanceAmount <= 0) {
+      return NextResponse.json({ error: 'Nothing to pay or deduct.' }, { status: 400 });
     }
 
-    const payNum = Number(amountToPay);
-    const deductNum = Number(deductAdvanceAmount || 0);
-    const totalGross = payNum + deductNum;
-
-    if (payNum < 0 || deductNum < 0) return NextResponse.json({ error: 'Amounts must be positive' }, { status: 400 });
-
-    await assertPeriodNotLocked(new Date());
+    const now = new Date();
+    await assertPeriodNotLocked(now);
 
     const result = await prisma.$transaction(async (tx) => {
       const employee = await tx.employee.findUnique({ where: { id: employeeId } });
       if (!employee) throw new Error('Employee not found');
 
-      // Deduct from advances if requested
-      if (deductNum > 0) {
-        let remainingDeduct = deductNum;
-        const pendingAdvances = await tx.advance.findMany({
-          where: { employeeId },
-          orderBy: { date: 'asc' }
-        });
+      // Duplicate guard: one salary run per employee per month
+      const existing = await tx.salaryHistory.findFirst({
+        where: { employeeId, reason: { startsWith: `Salary for ${monthYear}` } },
+        select: { id: true }
+      });
+      if (existing) {
+        throw new Error(`Salary for ${monthYear} has already been processed for ${employee.name}.`);
+      }
 
-        for (const adv of pendingAdvances) {
-          if (remainingDeduct <= 0) break;
+      // Deduct from pending advances (oldest first) - capped at what is ACTUALLY pending
+      let actualDeducted = 0;
+      if (deductAdvanceAmount > 0) {
+        let remaining = deductAdvanceAmount;
+        const advances = await tx.advance.findMany({ where: { employeeId }, orderBy: { date: 'asc' } });
+        for (const adv of advances) {
+          if (remaining <= 0) break;
           const pending = Number(adv.amount) - Number(adv.amountRepaid);
-          if (pending > 0) {
-             const payToThis = Math.min(pending, remainingDeduct);
-             await tx.advance.update({
-                 where: { id: adv.id },
-                 data: { amountRepaid: Number(adv.amountRepaid) + payToThis }
-             });
-             await tx.advanceRepayment.create({
-                 data: { advanceId: adv.id, amount: payToThis, date: new Date() }
-             });
-             remainingDeduct -= payToThis;
-          }
+          if (pending <= 0) continue;
+          const take = Math.min(pending, remaining);
+          await tx.advance.update({ where: { id: adv.id }, data: { amountRepaid: Number(adv.amountRepaid) + take } });
+          await tx.advanceRepayment.create({ data: { advanceId: adv.id, amount: take, date: now } });
+          remaining -= take;
+          actualDeducted += take;
+        }
+        if (actualDeducted + 0.005 < deductAdvanceAmount) {
+          throw new Error(`Cannot deduct ₹${deductAdvanceAmount}: only ₹${actualDeducted.toFixed(2)} of advances are pending for ${employee.name}.`);
         }
       }
 
-      // Log salary history
+      const totalGross = amountToPay + actualDeducted;
+
       const history = await tx.salaryHistory.create({
         data: {
-           employeeId,
-           date: new Date(),
-           amount: totalGross,
-           reason: `Salary for ${monthYear} (Paid: ₹${payNum}, Deducted Advance: ₹${deductNum})`
+          employeeId,
+          date: now,
+          amount: totalGross,
+          reason: `Salary for ${monthYear} (Paid: ₹${amountToPay}, Deducted Advance: ₹${actualDeducted})`
         }
       });
 
-      // Post Journal Entry
       const lines: { accountName: string; accountType: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'; debit: number; credit: number; }[] = [
         { accountName: 'Salary Expense', accountType: 'EXPENSE', debit: totalGross, credit: 0 },
       ];
-      if (payNum > 0) {
-        lines.push({ accountName: 'Cash & Bank', accountType: 'ASSET' as const, debit: 0, credit: payNum });
-      }
-      if (deductNum > 0) {
-        lines.push({ accountName: 'Employee Advances', accountType: 'ASSET' as const, debit: 0, credit: deductNum });
-      }
+      if (amountToPay > 0) lines.push({ accountName: 'Cash & Bank', accountType: 'ASSET', debit: 0, credit: amountToPay });
+      if (actualDeducted > 0) lines.push({ accountName: 'Employee Advances', accountType: 'ASSET', debit: 0, credit: actualDeducted });
 
       await postJournalEntry(tx, {
-        date: new Date(),
+        date: now,
         description: `Salary Payout to ${employee.name} (${monthYear})`,
-        referenceType: 'EXPENSE' as any,
+        referenceType: 'EXPENSE',
         referenceId: history.id,
         lines
       });
 
-      return history;
+      return { history, totalGross, actualDeducted };
     });
 
     await logAudit({
       action: 'CREATE',
       module: 'Salary',
-      description: `Processed salary of ₹${totalGross} for employee ID ${employeeId}`,
-      details: { employeeId, totalGross, paid: payNum, deducted: deductNum }
+      description: `Processed salary of ₹${result.totalGross} for employee ID ${employeeId} (${monthYear})`,
+      details: { employeeId, totalGross: result.totalGross, paid: amountToPay, deducted: result.actualDeducted }
     });
 
-    return NextResponse.json({ success: true, salary: result });
+    return NextResponse.json({ success: true, salary: result.history });
   } catch (error: any) {
     console.error(error);
     return NextResponse.json({ error: error.message || 'Database transaction failed' }, { status: 500 });

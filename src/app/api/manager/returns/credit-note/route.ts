@@ -64,6 +64,20 @@ export async function POST(request: Request) {
       if (!sale) throw new Error('Invoice Sale not found');
       if (sale.isDeleted) throw new Error('Cannot process returns on cancelled invoice');
 
+      const prior = await tx.creditNote.aggregate({
+        where: { saleId },
+        _sum: { qtyReturned: true, amountCredited: true }
+      });
+      const soldQty = sale.items.reduce((acc, item) => acc + Number(item.qty), 0);
+      const priorQty = Number(prior._sum.qtyReturned || 0);
+      const priorAmt = Number(prior._sum.amountCredited || 0);
+      if (priorQty + Number(qtyReturned) > soldQty + 0.001) {
+        throw new Error(`Return quantity exceeds invoice: sold ${soldQty}T, already returned ${priorQty}T.`);
+      }
+      if (priorAmt + Number(amountCredited) > Number(sale.totalValue) + 0.01) {
+        throw new Error(`Credit amount exceeds invoice value: invoice ₹${Number(sale.totalValue)}, already credited ₹${priorAmt}.`);
+      }
+
       // Create Credit Note
       const creditNote = await tx.creditNote.create({
         data: {

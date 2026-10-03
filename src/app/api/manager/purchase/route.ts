@@ -83,13 +83,27 @@ export async function POST(request: Request) {
     await assertPeriodNotLocked(recordDate);
 
     const result = await prisma.$transaction(async (tx) => {
+      const supplierRow = await tx.supplier.findUnique({ where: { id: supplierId } });
+      if (!supplierRow) throw new Error('Supplier not found');
+
+      const availableCredit = Number(supplierRow.creditBalance || 0);
+      const consumedCredit = availableCredit > 0 ? Math.min(availableCredit, totalValue) : 0;
+      if (consumedCredit > 0) {
+        await tx.supplier.update({
+          where: { id: supplierId },
+          data: { creditBalance: { decrement: consumedCredit } }
+        });
+      }
+
       const purchase = await tx.purchase.create({
         data: {
           supplierId,
           date: recordDate,
           qty: quantity,
           pricePerTon: price,
-          totalValue
+          totalValue,
+          amountPaid: consumedCredit,
+          fullyPaidDate: consumedCredit >= totalValue ? recordDate : null
         }
       });
 

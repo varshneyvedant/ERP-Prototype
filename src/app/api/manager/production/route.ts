@@ -120,13 +120,17 @@ export async function POST(request: Request) {
           remainingToDeduct -= deductAmount;
       }
 
-      // Calculate Scrap Salvage Value (Estimated at ₹450,000 per ton of scrap)
+      // Scrap is valued at a % of the ACTUAL weighted-average copper cost consumed (default 85%).
+      // Always <= cost, so it can never exceed raw cost and the journal always balances.
       const scrapGenerated = parsedRaw - parsedProduced;
-      const scrapSalvageValue = scrapGenerated * 450000;
-      const totalRawCostLessScrap = Math.max(0, totalRawCost - scrapSalvageValue);
+      const recoveryPct = Math.min(1, Math.max(0, Number(process.env.SCRAP_RECOVERY_PCT ?? '0.85')));
+      const avgRawCostPerTon = parsedRaw > 0 ? totalRawCost / parsedRaw : 0;
+      const scrapSalvageValue = Math.round(scrapGenerated * avgRawCostPerTon * recoveryPct * 100) / 100;
+      const wireRawCost = totalRawCost - scrapSalvageValue;
+      const overhead = Number(estimatedOverhead);
 
-      // Cost per ton of finished wire = (Total Raw Cost - Scrap Salvage + Overhead) / Wire Produced
-      const costPerTonFinished = parsedProduced > 0 ? ((totalRawCostLessScrap + Number(estimatedOverhead)) / parsedProduced) : 0;
+      // Cost per ton of finished wire = (Raw Cost - Scrap Salvage + Overhead) / Wire Produced
+      const costPerTonFinished = parsedProduced > 0 ? ((wireRawCost + overhead) / parsedProduced) : 0;
 
       const production = await tx.production.create({
         data: {
@@ -160,13 +164,17 @@ export async function POST(request: Request) {
          }
       });
 
-      // Post Double-Entry Journal Entry
-      const lines = [
-        { accountName: 'Inventory - Finished Goods', accountType: 'ASSET' as const, debit: totalRawCostLessScrap, credit: 0 },
-        { accountName: 'Inventory - Raw Materials', accountType: 'ASSET' as const, debit: 0, credit: totalRawCost }
+      // Post Double-Entry Journal Entry (balanced by construction):
+      // Dr FG (raw cost - scrap + overhead) + Dr Scrap  =  Cr Raw Materials + Cr Overhead Absorbed
+      const lines: { accountName: string; accountType: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'; debit: number; credit: number; }[] = [
+        { accountName: 'Inventory - Finished Goods', accountType: 'ASSET', debit: wireRawCost + overhead, credit: 0 },
+        { accountName: 'Inventory - Raw Materials', accountType: 'ASSET', debit: 0, credit: totalRawCost }
       ];
       if (scrapSalvageValue > 0) {
-        lines.push({ accountName: 'Inventory - Scrap', accountType: 'ASSET' as const, debit: scrapSalvageValue, credit: 0 });
+        lines.push({ accountName: 'Inventory - Scrap', accountType: 'ASSET', debit: scrapSalvageValue, credit: 0 });
+      }
+      if (overhead > 0) {
+        lines.push({ accountName: 'Manufacturing Overhead Absorbed', accountType: 'EXPENSE', debit: 0, credit: overhead });
       }
 
       await postJournalEntry(tx, {

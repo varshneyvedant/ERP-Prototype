@@ -221,6 +221,20 @@ export async function POST(request: Request) {
         }
       }
 
+      // Duplicate-submission guard (double-click / retry): identical invoice for the same customer in last 20s
+      const dupe = await tx.sale.findFirst({
+        where: {
+          customerId,
+          isDeleted: false,
+          totalValue: grandTotal,
+          createdAt: { gt: new Date(Date.now() - 20_000) }
+        },
+        select: { id: true }
+      });
+      if (dupe) {
+        throw new Error('DUPLICATE_SUBMISSION: An identical invoice for this customer was just created. If this is intentional, wait 20 seconds and retry.');
+      }
+
       let initialAmountPaid = 0;
       let initialFullyPaidDate = null;
       let consumedCredit = 0;
@@ -261,16 +275,9 @@ export async function POST(request: Request) {
         }
       });
 
-      if (consumedCredit > 0) {
-         await tx.customerLedger.create({
-            data: {
-               customerId,
-               date: recordDate,
-               amount: -consumedCredit,
-               description: `Overpayment Credit Applied to Invoice ID: ${sale.id}`
-            }
-         });
-      }
+      // NOTE: No extra ledger entry here. The original overpayment already posted its full
+      // negative amount to CustomerLedger when received; consuming stored credit only moves
+      // it from creditBalance onto this invoice (amountPaid).
 
       // Post Double-Entry Journal Entry
       const customerName = customer.name;

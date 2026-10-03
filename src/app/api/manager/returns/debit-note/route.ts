@@ -64,6 +64,15 @@ export async function POST(request: Request) {
       if (!purchase) throw new Error('Raw copper purchase bill not found');
       if (purchase.isDeleted) throw new Error('Cannot process returns on cancelled purchase');
 
+      const batch = await tx.inventoryBatch.findUnique({ where: { purchaseId } });
+      if (!batch || Number(batch.remainingQty) + 0.001 < Number(qtyReturned)) {
+        throw new Error(`Cannot return ${Number(qtyReturned)}T: only ${Number(batch?.remainingQty ?? 0).toFixed(3)}T of this purchase is still in stock (the rest was already used in production or sold).`);
+      }
+      const prior = await tx.debitNote.aggregate({ where: { purchaseId }, _sum: { amountDebited: true } });
+      if (Number(prior._sum.amountDebited || 0) + Number(amountDebited) > Number(purchase.totalValue) + 0.01) {
+        throw new Error('Debit amount exceeds the purchase bill value.');
+      }
+
       // Create Debit Note
       const debitNote = await tx.debitNote.create({
         data: {

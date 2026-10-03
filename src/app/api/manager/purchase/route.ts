@@ -10,6 +10,7 @@ import { logAudit } from '@/lib/audit/logger';
 import { assertPeriodNotLocked } from '@/lib/periodLock';
 import { postJournalEntry } from '@/lib/ledger/journal';
 import { reconcileFIFOBook } from '@/lib/ledger/reconciliation';
+import { applyUnappliedPayments } from '@/lib/ledger/credit';
 import { checkIdempotency, completeIdempotency } from '@/lib/idempotency';
 
 export async function GET() {
@@ -86,26 +87,27 @@ export async function POST(request: Request) {
       const supplierRow = await tx.supplier.findUnique({ where: { id: supplierId } });
       if (!supplierRow) throw new Error('Supplier not found');
 
-      const availableCredit = Number(supplierRow.creditBalance || 0);
-      const consumedCredit = availableCredit > 0 ? Math.min(availableCredit, totalValue) : 0;
-      if (consumedCredit > 0) {
-        await tx.supplier.update({
-          where: { id: supplierId },
-          data: { creditBalance: { decrement: consumedCredit } }
-        });
-      }
-
       const purchase = await tx.purchase.create({
         data: {
           supplierId,
           date: recordDate,
           qty: quantity,
           pricePerTon: price,
-          totalValue,
-          amountPaid: consumedCredit,
-          fullyPaidDate: consumedCredit >= totalValue ? recordDate : null
+          totalValue
         }
       });
+
+      // Apply genuinely unapplied approved payments (true advances to the supplier) to this bill.
+      const appliedPrepaid = await applyUnappliedPayments(tx, 'SUPPLIER', supplierId, purchase.id, totalValue);
+      if (appliedPrepaid > 0) {
+        await tx.purchase.update({
+          where: { id: purchase.id },
+          data: {
+            amountPaid: appliedPrepaid,
+            fullyPaidDate: appliedPrepaid + 0.005 >= totalValue ? recordDate : null
+          }
+        });
+      }
 
       // Create Inventory Batch for O(1) FIFO tracking
       await tx.inventoryBatch.create({

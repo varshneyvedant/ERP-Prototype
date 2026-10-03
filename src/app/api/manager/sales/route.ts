@@ -8,6 +8,7 @@ import { logAudit } from '@/lib/audit/logger';
 import { assertPeriodNotLocked } from '@/lib/periodLock';
 import { postJournalEntry } from '@/lib/ledger/journal';
 import { reconcileFIFOBook } from '@/lib/ledger/reconciliation';
+import { applyUnappliedPayments } from '@/lib/ledger/credit';
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -235,36 +236,28 @@ export async function POST(request: Request) {
         throw new Error('DUPLICATE_SUBMISSION: An identical invoice for this customer was just created. If this is intentional, wait 20 seconds and retry.');
       }
 
-      let initialAmountPaid = 0;
-      let initialFullyPaidDate = null;
-      let consumedCredit = 0;
-      const availableCredit = Number(customer.creditBalance || 0);
-
-      if (availableCredit > 0) {
-         consumedCredit = Math.min(availableCredit, grandTotal);
-         initialAmountPaid = consumedCredit;
-         if (initialAmountPaid >= grandTotal) {
-             initialFullyPaidDate = recordDate;
-         }
-         
-         await tx.customer.update({
-             where: { id: customerId },
-             data: { creditBalance: { decrement: consumedCredit } }
-         });
-      }
-
       const sale = await tx.sale.create({
         data: {
           customerId,
           date: recordDate,
           totalValue: grandTotal,
-          amountPaid: initialAmountPaid,
-          fullyPaidDate: initialFullyPaidDate,
           items: {
             create: saleItemsData
           }
         }
       });
+
+      // Apply any genuinely unapplied approved payments (true prepayments) to this invoice.
+      const appliedPrepaid = await applyUnappliedPayments(tx, 'CUSTOMER', customerId, sale.id, grandTotal);
+      if (appliedPrepaid > 0) {
+        await tx.sale.update({
+          where: { id: sale.id },
+          data: {
+            amountPaid: appliedPrepaid,
+            fullyPaidDate: appliedPrepaid + 0.005 >= grandTotal ? recordDate : null
+          }
+        });
+      }
 
       await tx.customerLedger.create({
         data: {
@@ -275,9 +268,8 @@ export async function POST(request: Request) {
         }
       });
 
-      // NOTE: No extra ledger entry here. The original overpayment already posted its full
-      // negative amount to CustomerLedger when received; consuming stored credit only moves
-      // it from creditBalance onto this invoice (amountPaid).
+      // NOTE: No extra ledger entry for applied prepayments - the payment already posted its full
+      // negative amount to CustomerLedger when it was received.
 
       // Post Double-Entry Journal Entry
       const customerName = customer.name;

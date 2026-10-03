@@ -35,57 +35,6 @@ export async function GET() {
   }
 }
 
-export async function DELETE(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const role = (session.user as any).role?.toLowerCase();
-  if (role !== 'manager' && role !== 'owner') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
-
-    await prisma.$transaction(async (tx) => {
-       const sale = await tx.sale.findUnique({ where: { id } });
-       if (!sale) throw new Error('Sale not found');
-
-       // Assert period is not locked before deleting
-       await assertPeriodNotLocked(sale.date);
-
-       // Remove corresponding ledger entries
-       await tx.customerLedger.updateMany({
-          where: { description: { startsWith: `Invoice Sale ID: ${id}` } },
-          data: { isDeleted: true }
-       });
-
-       // Delete journal entries associated with this Sale
-       await tx.journalEntry.deleteMany({
-          where: { referenceType: 'SALE', referenceId: id }
-       });
-
-       await tx.sale.update({ where: { id }, data: { isDeleted: true } });
-       // Rebalance FIFO to restore inventory quantities that were deducted by this sale
-       await reconcileFIFOBook(tx);
-    });
-
-    await logAudit({
-        action: 'DELETE',
-        module: 'Sales',
-        description: `Cancelled sale ID ${id}`,
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Database transaction failed' }, { status: 500 });
-  }
-}
-
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -226,28 +175,25 @@ export async function POST(request: Request) {
       }
 
       // Customer Credit Limit & 18-Day Overdue Dispatch Lock Check
-      const customer = await tx.customer.findUnique({
-        where: { id: customerId },
-        include: {
-          sales: { where: { isDeleted: false } },
-          payments: { where: { status: 'APPROVED' } }
-        }
-      });
+      const customer = await tx.customer.findUnique({ where: { id: customerId } });
       if (!customer) throw new Error('Customer not found');
 
-      const totalInvoiced = customer.sales.reduce((sum, s) => sum + Number(s.totalValue), 0);
-      const totalPaid = customer.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+      const totalInvoicedAgg = await tx.sale.aggregate({ where: { customerId, isDeleted: false }, _sum: { totalValue: true } });
+      const totalPaidAgg = await tx.paymentRecord.aggregate({ where: { customerId, status: 'APPROVED' }, _sum: { amount: true } });
+      
+      const totalInvoiced = Number(totalInvoicedAgg._sum.totalValue || 0);
+      const totalPaid = Number(totalPaidAgg._sum.amount || 0);
       const currentBalance = totalInvoiced - totalPaid;
 
       const creditDays = customer.creditDays || 18;
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - creditDays);
 
-      const hasOverdueInvoices = customer.sales.some(s => {
-        const isUnpaid = Number(s.amountPaid) < Number(s.totalValue);
-        const isPastDue = new Date(s.date) < cutoffDate;
-        return isUnpaid && isPastDue;
+      const oldSales = await tx.sale.findMany({
+          where: { customerId, isDeleted: false, date: { lt: cutoffDate } },
+          select: { amountPaid: true, totalValue: true }
       });
+      const hasOverdueInvoices = oldSales.some(s => Number(s.amountPaid) < Number(s.totalValue));
 
       const creditLimit = Number(customer.creditLimit || 7000000);
       const isLimitExceeded = currentBalance > creditLimit;

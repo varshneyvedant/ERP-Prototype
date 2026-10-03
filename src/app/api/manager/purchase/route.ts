@@ -36,68 +36,6 @@ export async function GET() {
   }
 }
 
-export async function DELETE(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const role = (session.user as any).role?.toLowerCase();
-  if (role !== 'manager' && role !== 'owner') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
-
-    await prisma.$transaction(async (tx) => {
-       const purchase = await tx.purchase.findUnique({ where: { id } });
-       if (!purchase) throw new Error('Purchase not found');
-
-       // Assert period not locked
-       await assertPeriodNotLocked(purchase.date);
-
-       // Remove corresponding ledger entries
-       // Ledger description: `Purchase of ${quantity} Tons`
-       await tx.supplierLedger.updateMany({
-          where: {
-             supplierId: purchase.supplierId,
-             amount: purchase.totalValue,
-             date: purchase.date
-          },
-          data: { isDeleted: true }
-       });
-
-       // Delete journal entries associated with this Purchase
-       await tx.journalEntry.deleteMany({
-          where: { referenceType: 'PURCHASE', referenceId: id }
-       });
-
-        await tx.purchase.update({ where: { id }, data: { isDeleted: true } });
-
-        // Zero out the inventory batch so reconciler doesn't use it
-        await tx.inventoryBatch.updateMany({
-           where: { purchaseId: id },
-           data: { remainingQty: 0, initialQty: 0 }
-        });
-
-        await reconcileFIFOBook(tx);
-     }, { maxWait: 10000, timeout: 30000 });
-
-    await logAudit({
-        action: 'DELETE',
-        module: 'Purchases',
-        description: `Cancelled purchase ID ${id}`,
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: 'Database transaction failed' }, { status: 500 });
-  }
-}
-
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {

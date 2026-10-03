@@ -33,67 +33,6 @@ export async function GET() {
   }
 }
 
-export async function DELETE(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const role = (session.user as any).role?.toLowerCase();
-  if (role !== 'manager' && role !== 'owner') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-
-    if (!id) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
-
-    await prisma.$transaction(async (tx) => {
-       const production = await tx.production.findUnique({ where: { id } });
-       if (!production) throw new Error('Production not found');
-
-       // Assert period not locked before deleting
-       await assertPeriodNotLocked(production.date);
-
-       // Remove corresponding scrap generated entry
-       await tx.scrapInventory.updateMany({
-          where: {
-             qty: production.scrapGenerated,
-             date: production.date,
-             type: 'GENERATED'
-          },
-          data: { isDeleted: true }
-       });
-
-       // Delete journal entries associated with this Production run
-       await tx.journalEntry.deleteMany({
-          where: { referenceType: 'PRODUCTION', referenceId: id }
-       });
-
-       await tx.production.update({ where: { id }, data: { isDeleted: true } });
-
-       // Zero out the finished goods batch so it's not sellable
-       await tx.finishedGoodsBatch.updateMany({
-          where: { productionId: id },
-          data: { remainingQty: 0, initialQty: 0 }
-       });
-
-       await reconcileFIFOBook(tx);
-    }, { maxWait: 10000, timeout: 30000 });
-
-    await logAudit({
-      action: 'DELETE',
-      module: 'Production',
-      description: `Undid production ID ${id}`,
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Database transaction failed' }, { status: 500 });
-  }
-}
-
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
@@ -125,7 +64,7 @@ export async function POST(request: Request) {
       if (idempotencyKey) await completeIdempotency(idempotencyKey, 'FAILED', errRes);
       return NextResponse.json(errRes, { status: 400 });
     }
-    const { rawCopperUsed, productCategory, brand, wireType, wireProduced, date } = validation.data;
+    const { rawCopperUsed, productCategory, brand, wireType, wireProduced, date, estimatedOverhead = 0 } = validation.data;
 
     const parsedRaw = rawCopperUsed;
     const parsedProduced = wireProduced;
@@ -182,7 +121,7 @@ export async function POST(request: Request) {
       }
 
       // Cost per ton of finished wire = Total Raw Cost / Wire Produced (factors in scrap loss)
-      const costPerTonFinished = parsedProduced > 0 ? (totalRawCost / parsedProduced) : 0;
+      const costPerTonFinished = parsedProduced > 0 ? ((totalRawCost + Number(estimatedOverhead)) / parsedProduced) : 0;
 
       const production = await tx.production.create({
         data: {
@@ -192,6 +131,7 @@ export async function POST(request: Request) {
           brand: brand || null,
           wireType: wireType || '',
           wireProduced: parsedProduced,
+          estimatedOverhead: Number(estimatedOverhead),
           scrapGenerated: parsedRaw - parsedProduced,
           finishedGoodsBatch: {
              create: {

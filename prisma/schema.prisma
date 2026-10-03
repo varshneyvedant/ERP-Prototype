@@ -228,6 +228,7 @@ model Production {
   brand           String? // e.g. "Poly Vansh", "Poly Lifeline"
   wireType        String // e.g., "1mm", "2mm"
   wireProduced    Decimal // Tons
+  estimatedOverhead Decimal @default(0)
   scrapGenerated  Decimal  @default(0) // Automatically tracked difference (rawUsed - wireProduced)
   isDeleted       Boolean  @default(false)
   finishedGoodsBatch FinishedGoodsBatch?

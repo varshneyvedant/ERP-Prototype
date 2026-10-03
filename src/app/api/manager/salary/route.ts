@@ -67,8 +67,8 @@ export async function POST(request: Request) {
       });
 
       // Post Journal Entry
-      const lines = [
-        { accountName: 'Salary Expense', accountType: 'EXPENSE' as const, debit: totalGross, credit: 0 },
+      const lines: { accountName: string; accountType: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'; debit: number; credit: number; }[] = [
+        { accountName: 'Salary Expense', accountType: 'EXPENSE', debit: totalGross, credit: 0 },
       ];
       if (payNum > 0) {
         lines.push({ accountName: 'Cash & Bank', accountType: 'ASSET' as const, debit: 0, credit: payNum });

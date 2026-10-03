@@ -40,6 +40,7 @@ export async function POST(request: Request) {
             data: { isDeleted: true }
           });
           await tx.sale.update({ where: { id: targetId }, data: { isDeleted: true } });
+          await tx.journalEntry.deleteMany({ where: { referenceType: 'SALE', referenceId: targetId } });
         }
       } else if (module === 'Purchases') {
         const purchase = await tx.purchase.findUnique({ where: { id: targetId } });
@@ -53,6 +54,7 @@ export async function POST(request: Request) {
             data: { isDeleted: true }
           });
           await tx.purchase.update({ where: { id: targetId }, data: { isDeleted: true } });
+          await tx.journalEntry.deleteMany({ where: { referenceType: 'PURCHASE', referenceId: targetId } });
         }
       } else if (module === 'Production') {
         const production = await tx.production.findUnique({ where: { id: targetId } });
@@ -66,6 +68,13 @@ export async function POST(request: Request) {
              data: { isDeleted: true }
           });
           await tx.production.update({ where: { id: targetId }, data: { isDeleted: true } });
+          await tx.journalEntry.deleteMany({ where: { referenceType: 'PRODUCTION', referenceId: targetId } });
+        }
+      } else if (module === 'Expense') {
+        const expense = await tx.expense.findUnique({ where: { id: targetId } });
+        if (expense) {
+          await tx.expense.update({ where: { id: targetId }, data: { isDeleted: true } });
+          await tx.journalEntry.deleteMany({ where: { referenceType: 'EXPENSE', referenceId: targetId } });
         }
       } else {
         throw new Error(`Rollback for module ${module} is not supported`);

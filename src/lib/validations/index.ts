@@ -43,6 +43,7 @@ export const ManagerProductionPostSchema = z.object({
   brand: z.string().optional().nullable(),
   wireType: z.string().optional().nullable(),
   wireProduced: positiveNumber,
+  estimatedOverhead: nonNegativeNumber.optional().default(0),
   date: z.string().optional().nullable().or(z.literal("")),
 });
 

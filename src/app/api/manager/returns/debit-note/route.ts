@@ -101,7 +101,7 @@ export async function POST(request: Request) {
         referenceId: debitNote.id,
         lines: [
           { accountName: 'Accounts Payable', accountType: 'LIABILITY' as const, debit: Number(amountDebited), credit: 0 },
-          { accountName: 'Inventory', accountType: 'ASSET' as const, debit: 0, credit: Number(amountDebited) }
+          { accountName: 'Inventory - Raw Materials', accountType: 'ASSET' as const, debit: 0, credit: Number(amountDebited) }
         ]
       });
 

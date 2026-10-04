@@ -18,8 +18,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const role = (session.user as any).role?.toLowerCase();
-  if (role !== 'manager' && role !== 'owner') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (role !== 'owner') {
+    return NextResponse.json({ error: 'Forbidden. Owner approval required.' }, { status: 403 });
   }
 
   try {

@@ -140,7 +140,7 @@ export async function POST(request: Request) {
         lines: [
           { accountName: 'Sales Revenue', accountType: 'REVENUE' as const, debit: Number(amountCredited), credit: 0 },
           { accountName: 'Accounts Receivable', accountType: 'ASSET' as const, debit: 0, credit: Number(amountCredited) },
-          { accountName: 'Inventory', accountType: 'ASSET' as const, debit: cogsAmount, credit: 0 },
+          { accountName: 'Inventory - Finished Goods', accountType: 'ASSET' as const, debit: cogsAmount, credit: 0 },
           { accountName: 'Cost of Goods Sold', accountType: 'EXPENSE' as const, debit: 0, credit: cogsAmount }
         ]
       });

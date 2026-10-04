@@ -140,7 +140,7 @@ export async function POST(request: Request) {
         referenceType: 'PURCHASE',
         referenceId: purchase.id,
         lines: [
-          { accountName: 'Inventory', accountType: 'ASSET' as const, debit: totalValue, credit: 0 },
+          { accountName: 'Inventory - Raw Materials', accountType: 'ASSET' as const, debit: totalValue, credit: 0 },
           { accountName: 'Accounts Payable', accountType: 'LIABILITY' as const, debit: 0, credit: totalValue }
         ]
       });

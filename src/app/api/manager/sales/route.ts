@@ -283,7 +283,7 @@ export async function POST(request: Request) {
       if (totalCogs > 0) {
         journalLines.push(
           { accountName: 'Cost of Goods Sold', accountType: 'EXPENSE' as const, debit: totalCogs, credit: 0 },
-          { accountName: 'Inventory', accountType: 'ASSET' as const, debit: 0, credit: totalCogs }
+          { accountName: 'Inventory - Finished Goods', accountType: 'ASSET' as const, debit: 0, credit: totalCogs }
         );
       }
 

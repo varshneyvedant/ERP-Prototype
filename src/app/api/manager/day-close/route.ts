@@ -19,7 +19,7 @@ export async function GET() {
   // Find last close
   const lastClose = await prisma.auditLog.findFirst({
     where: { action: 'DAY_CLOSE' },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { date: 'desc' }
   });
 
   return NextResponse.json({ success: true, systemCash, lastClose });

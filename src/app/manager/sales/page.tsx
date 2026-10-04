@@ -465,7 +465,7 @@ export default function RecordSale() {
 
       const closingBal = createdSaleForSlip.closingBalance ?? ((createdSaleForSlip.customer?.currentBalance || 0) + createdSaleForSlip.total);
 
-      let waText = `*LEDGER SLIP - VARSHNEY ELECTRICAL INDUSTRIES*\n`;
+      let waText = `*LEDGER SLIP - MANUFACTURING COMPANY*\n`;
       waText += `----------------------------------------\n`;
       waText += `*Invoice No:* ${createdSaleForSlip.invoiceNo}\n`;
       waText += `*Date:* ${dateStr}\n`;
@@ -1244,7 +1244,7 @@ export default function RecordSale() {
                       <img src="/logo.png" alt="Logo" style={{ width: '38px', height: '38px', objectFit: 'contain' }} />
                       <div style={{ textAlign: 'left' }}>
                         <h3 className="ledger-title" style={{ transform: 'rotate(-1deg)', margin: 0, lineHeight: 1.1, fontSize: '18px' }}>
-                           VARSHNEY ELECTRICAL
+                           MANUFACTURING COMPANY
                         </h3>
                         <span style={{ fontSize: '9px', color: '#555', fontWeight: 'bold', letterSpacing: '1px', textTransform: 'uppercase' }}>
                           Manufacturing Ledger Dispatch Slip

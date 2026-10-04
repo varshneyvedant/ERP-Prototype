@@ -81,7 +81,7 @@ export default function JournalsPage() {
       });
     });
 
-    exportToPDF(headers, rows, 'Varshney Electrical Industries - General Ledger Journals');
+    exportToPDF(headers, rows, 'Manufacturing Company - General Ledger Journals');
   };
 
   return (

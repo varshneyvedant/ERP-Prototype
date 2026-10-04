@@ -201,7 +201,7 @@ export default function ManagerDashboard() {
                 </div>
                 
                 <div className="pt-6 border-t border-[#333] text-center">
-                    <p className="text-xs text-gray-600">Authorized Manager Session | VARSHNEY ELECTRICAL INDUSTRIES</p>
+                    <p className="text-xs text-gray-600">Authorized Manager Session | MANUFACTURING COMPANY</p>
                  </div>
              </div>
           </div>

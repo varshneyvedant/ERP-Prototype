@@ -1,8 +1,8 @@
-# VEI ERP — System Showcase & Visual Asset Catalog
+# ERP Prototype — System Showcase & Visual Asset Catalog
 
 **Location:** `site_showcase/`
 
-This directory contains full-resolution, authenticated screenshots and brand media for the **Varshney Electrical Industries (VEI) ERP System**.
+This directory contains full-resolution, authenticated screenshots and brand media for the **ERP Prototype System**.
 
 ---
 

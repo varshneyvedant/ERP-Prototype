@@ -48,7 +48,7 @@ export default function LoginPage() {
         setLoading(false);
       } else {
         if (typeof window !== 'undefined') {
-          sessionStorage.setItem('vei_auth_session', 'active');
+          sessionStorage.setItem('erp_auth_session', 'active');
         }
         toast.success('Identity verified. Loading secure dashboard...');
         router.push('/');
@@ -79,7 +79,7 @@ export default function LoginPage() {
               <div className="relative w-32 h-32 sm:w-36 sm:h-36 bg-white rounded-full p-2.5 flex items-center justify-center shadow-[0_0_40px_rgba(239,68,68,0.35)] border-2 border-red-600/50 overflow-hidden">
                 <img 
                   src="/logo.png" 
-                  alt="Varshney Electrical Industries Logo" 
+                  alt="Company Logo" 
                   className="w-full h-full object-contain" 
                 />
               </div>
@@ -91,7 +91,7 @@ export default function LoginPage() {
                 Zero-Trust Secure Gateway
               </span>
               <p className="text-xs text-gray-300 font-bold tracking-wide mt-1">
-                VEI Industrial Manufacturing ERP
+                Industrial Manufacturing ERP
               </p>
             </div>
           </div>
@@ -211,7 +211,7 @@ export default function LoginPage() {
           <div className="flex items-center justify-center gap-2 pt-1">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              VEI Cloud Production Active • v1.0.0
+              Cloud Production Active • v1.0.0
             </span>
           </div>
 

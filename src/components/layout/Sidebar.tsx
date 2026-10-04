@@ -69,10 +69,10 @@ export default function Sidebar() {
           >
             <Menu size={20} />
           </button>
-          <img src="/logo.png" alt="VEI Logo" className="w-8 h-8 object-contain rounded-lg bg-white/95 p-0.5 shadow-sm" />
+          <img src="/logo.png" alt="Company Logo" className="w-8 h-8 object-contain rounded-lg bg-white/95 p-0.5 shadow-sm" />
           <div className="flex flex-col">
-            <span className="text-xs font-black tracking-wider text-red-500">VARSHNEY</span>
-            <span className="text-[9px] font-bold text-gray-400">ELECTRICAL INDUSTRIES</span>
+            <span className="text-xs font-black tracking-wider text-red-500">GENERIC</span>
+            <span className="text-[9px] font-bold text-gray-400">MANUFACTURING CO.</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -96,11 +96,11 @@ export default function Sidebar() {
         <div className="w-full">
           <div className="flex items-center gap-2.5 mb-2">
             <div className="w-11 h-11 bg-white/95 rounded-xl p-1 flex items-center justify-center shadow-md border border-red-500/30 shrink-0">
-              <img src="/logo.png" alt="Varshney Electrical Logo" className="w-full h-full object-contain" />
+              <img src="/logo.png" alt="Company Logo" className="w-full h-full object-contain" />
             </div>
             <div className="flex flex-col leading-tight">
-              <span className="text-xs font-black text-red-500 tracking-wider">VARSHNEY</span>
-              <span className="text-[9px] text-gray-400 font-black tracking-widest mt-0.5">ELECTRICAL IND.</span>
+              <span className="text-xs font-black text-red-500 tracking-wider">GENERIC</span>
+              <span className="text-[9px] text-gray-400 font-black tracking-widest mt-0.5">MANUFACTURING</span>
             </div>
           </div>
           <div className="flex flex-col gap-1.5 mt-1">
@@ -346,7 +346,7 @@ export default function Sidebar() {
         <button
           onClick={() => {
             if (typeof window !== 'undefined') {
-              sessionStorage.removeItem('vei_auth_session');
+              sessionStorage.removeItem('erp_auth_session');
               localStorage.removeItem('simulated_role');
             }
             signOut({ callbackUrl: '/login' });

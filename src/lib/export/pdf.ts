@@ -111,7 +111,7 @@ export function exportToPDF(headers: string[], rows: any[][], title: string) {
     <body>
       <div class="header">
         <div>
-          <h1 class="company-name">VARSHNEY <span>ELECTRICAL INDUSTRIES</span></h1>
+          <h1 class="company-name">MANUFACTURING <span>COMPANY</span></h1>
           <h2 class="report-title">${escapeHtml(title)}</h2>
         </div>
         <div class="meta-info">
@@ -137,7 +137,7 @@ export function exportToPDF(headers: string[], rows: any[][], title: string) {
       </table>
 
       <div class="footer">
-        <div>Varshney Electrical Industries ERP report generation.</div>
+        <div>Manufacturing Company ERP report generation.</div>
         <div>Page 1 of 1</div>
       </div>
 

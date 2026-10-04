@@ -82,7 +82,7 @@ export async function GET(request: Request) {
     return new NextResponse('\uFEFF' + csv(headers, rows), {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="vei-${table}-${stamp}.csv"`,
+        'Content-Disposition': `attachment; filename="export-${table}-${stamp}.csv"`,
         'Cache-Control': 'no-store'
       }
     });

@@ -13,7 +13,7 @@ function SessionLifecycleGuard({ children }: { children: ReactNode }) {
     if (pathname === '/login') return;
 
     if (status === 'authenticated' && session) {
-      const isTabSessionActive = typeof window !== 'undefined' ? sessionStorage.getItem('vei_auth_session') : null;
+      const isTabSessionActive = typeof window !== 'undefined' ? sessionStorage.getItem('erp_auth_session') : null;
       if (!isTabSessionActive) {
         // Tab/Browser was freshly opened or restored — force re-authentication with password
         signOut({ redirect: true, callbackUrl: '/login' });

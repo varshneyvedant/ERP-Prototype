@@ -9,8 +9,8 @@ import { Toaster } from 'sonner';
 const inter = Inter({ subsets: ['latin'], display: 'swap', fallback: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'] });
 
 export const metadata: Metadata = {
-  title: 'VEI ERP - Varshney Electrical Industries',
-  description: 'Internal tracking & double-entry ERP for copper wire manufacturing',
+  title: 'Manufacturing ERP Prototype',
+  description: 'Internal tracking & double-entry ERP for manufacturing',
   icons: {
     icon: '/logo.png',
     apple: '/logo.png',

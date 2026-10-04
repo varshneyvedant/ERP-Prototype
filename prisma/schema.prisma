@@ -1,16 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-
-
-
-
-
-
-
-
-
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -28,26 +18,26 @@ model User {
 }
 
 model PaymentRecord {
-  id             String          @id @default(uuid())
-  date           DateTime        @default(now())
+  id             String   @id @default(uuid())
+  date           DateTime @default(now())
   amount         Decimal
   type           String
   customerId     String?
   supplierId     String?
   expenseId      String?
   scrapSaleId    String?
-  idempotencyKey String?         @unique
+  idempotencyKey String?  @unique
   description    String?
 
-  customer       Customer?       @relation(fields: [customerId], references: [id])
-  supplier       Supplier?       @relation(fields: [supplierId], references: [id])
-  expense        Expense?        @relation(fields: [expenseId], references: [id])
-  scrapSale      ScrapInventory? @relation(fields: [scrapSaleId], references: [id])
+  customer  Customer?       @relation(fields: [customerId], references: [id])
+  supplier  Supplier?       @relation(fields: [supplierId], references: [id])
+  expense   Expense?        @relation(fields: [expenseId], references: [id])
+  scrapSale ScrapInventory? @relation(fields: [scrapSaleId], references: [id])
 
   invoicePayments InvoicePayment[]
   billPayments    BillPayment[]
 
-  status         String @default("APPROVED")
+  status String @default("APPROVED")
 
   @@index([date])
   @@index([customerId])
@@ -55,26 +45,26 @@ model PaymentRecord {
 }
 
 model InvoicePayment {
-  id              String        @id @default(uuid())
+  id              String  @id @default(uuid())
   paymentRecordId String
   saleId          String
   amountApplied   Decimal
-  
-  paymentRecord   PaymentRecord @relation(fields: [paymentRecordId], references: [id], onDelete: Cascade)
-  sale            Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  paymentRecord PaymentRecord @relation(fields: [paymentRecordId], references: [id], onDelete: Cascade)
+  sale          Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   @@index([paymentRecordId])
   @@index([saleId])
 }
 
 model BillPayment {
-  id              String        @id @default(uuid())
+  id              String  @id @default(uuid())
   paymentRecordId String
   purchaseId      String
   amountApplied   Decimal
-  
-  paymentRecord   PaymentRecord @relation(fields: [paymentRecordId], references: [id], onDelete: Cascade)
-  purchase        Purchase      @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  paymentRecord PaymentRecord @relation(fields: [paymentRecordId], references: [id], onDelete: Cascade)
+  purchase      Purchase      @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
 
   @@index([paymentRecordId])
   @@index([purchaseId])
@@ -107,16 +97,16 @@ model SalaryHistory {
 }
 
 model Attendance {
-  id          String           @id @default(uuid())
+  id          String   @id @default(uuid())
   employeeId  String
   date        DateTime
   status      String
   hoursWorked Decimal?
-  employee    Employee         @relation(fields: [employeeId], references: [id])
+  employee    Employee @relation(fields: [employeeId], references: [id])
 
+  @@unique([employeeId, date])
   @@index([date])
   @@index([employeeId])
-  @@unique([employeeId, date])
 }
 
 model Advance {
@@ -165,22 +155,22 @@ model Supplier {
 }
 
 model Customer {
-  id            String           @id @default(uuid())
-  name          String
-  contact       String?
-  address       String?
-  gst           String?
-  stateCode     String?
-  pan           String?
-  transport     String?
-  creditBalance Decimal          @default(0)
-  creditLimit   Decimal          @default(7000000) // Default 70 Lakhs
-  creditDays    Int              @default(18)      // Default 18 Days
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  sales         Sale[]
-  ledgers       CustomerLedger[]
-  payments      PaymentRecord[]
+  id             String           @id @default(uuid())
+  name           String
+  contact        String?
+  address        String?
+  gst            String?
+  stateCode      String?
+  pan            String?
+  transport      String?
+  creditBalance  Decimal          @default(0)
+  creditLimit    Decimal          @default(7000000) // Default 70 Lakhs
+  creditDays     Int              @default(18) // Default 18 Days
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  sales          Sale[]
+  ledgers        CustomerLedger[]
+  payments       PaymentRecord[]
   saudaContracts SaudaContract[]
 }
 
@@ -189,7 +179,7 @@ model Purchase {
   supplierId     String
   date           DateTime
   fullyPaidDate  DateTime?
-  qty            Decimal         // Tons of raw copper
+  qty            Decimal // Tons of raw copper
   pricePerTon    Decimal
   totalValue     Decimal
   amountPaid     Decimal         @default(0)
@@ -221,37 +211,37 @@ model InventoryBatch {
 }
 
 model Production {
-  id              String   @id @default(uuid())
-  date            DateTime
-  rawCopperUsed   Decimal // Tons
-  productCategory String // "CC Wires", "Submersible Winding Wire"
-  brand           String? // e.g. "Poly Vansh", "Poly Lifeline"
-  wireType        String // e.g., "1mm", "2mm"
-  wireProduced    Decimal // Tons
-  estimatedOverhead Decimal @default(0)
-  scrapGenerated  Decimal  @default(0) // Automatically tracked difference (rawUsed - wireProduced)
-  isDeleted       Boolean  @default(false)
+  id                 String              @id @default(uuid())
+  date               DateTime
+  rawCopperUsed      Decimal // Tons
+  productCategory    String // "CC Wires", "Submersible Winding Wire"
+  brand              String? // e.g. "Poly Vansh", "Poly Lifeline"
+  wireType           String // e.g., "1mm", "2mm"
+  wireProduced       Decimal // Tons
+  estimatedOverhead  Decimal             @default(0)
+  scrapGenerated     Decimal             @default(0) // Automatically tracked difference (rawUsed - wireProduced)
+  isDeleted          Boolean             @default(false)
   finishedGoodsBatch FinishedGoodsBatch?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@index([date])
 }
 
 model FinishedGoodsBatch {
-  id              String        @id @default(uuid())
-  productionId    String        @unique
+  id              String   @id @default(uuid())
+  productionId    String   @unique
   date            DateTime
   productCategory String
   brand           String?
   wireType        String
   initialQty      Decimal
   remainingQty    Decimal
-  costPerTon      Decimal       // Exact FIFO cost inherited from raw copper consumed
-  
-  production      Production    @relation(fields: [productionId], references: [id])
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  costPerTon      Decimal // Exact FIFO cost inherited from raw copper consumed
+
+  production Production @relation(fields: [productionId], references: [id])
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   @@index([date])
   @@index([productCategory, brand, wireType])
@@ -259,38 +249,38 @@ model FinishedGoodsBatch {
 }
 
 model ScrapInventory {
-  id        String    @id @default(uuid())
-  date      DateTime  @default(now())
-  type      String    // "GENERATED", "SOLD", "PROCESS_LOSS_ADJUSTMENT"
-  qty       Decimal   // Tons
-  revenue   Decimal   @default(0) // Money earned if sold
+  id        String   @id @default(uuid())
+  date      DateTime @default(now())
+  type      String // "GENERATED", "SOLD", "PROCESS_LOSS_ADJUSTMENT"
+  qty       Decimal // Tons
+  revenue   Decimal  @default(0) // Money earned if sold
   notes     String?
-  isDeleted Boolean   @default(false)
-  
+  isDeleted Boolean  @default(false)
+
   payments  PaymentRecord[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 
   @@index([date])
   @@index([type])
 }
 
 model SaudaContract {
-  id              String     @id @default(uuid())
-  contractNo      String     @unique
-  customerId      String
-  bookingDate     DateTime   @default(now())
-  expiryDate      DateTime?
-  ratePerKg       Decimal    // Booked Rate in ₹/Kg
-  totalQtyTons    Decimal    // Booked Quantity in Tons
-  remainingQty    Decimal    // Remaining Quantity to dispatch in Tons
-  status          String     @default("ACTIVE") // "ACTIVE", "COMPLETED", "CANCELLED"
-  notes           String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id           String    @id @default(uuid())
+  contractNo   String    @unique
+  customerId   String
+  bookingDate  DateTime  @default(now())
+  expiryDate   DateTime?
+  ratePerKg    Decimal // Booked Rate in ₹/Kg
+  totalQtyTons Decimal // Booked Quantity in Tons
+  remainingQty Decimal // Remaining Quantity to dispatch in Tons
+  status       String    @default("ACTIVE") // "ACTIVE", "COMPLETED", "CANCELLED"
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  customer        Customer   @relation(fields: [customerId], references: [id])
-  saleItems       SaleItem[]
+  customer  Customer   @relation(fields: [customerId], references: [id])
+  saleItems SaleItem[]
 
   @@index([customerId])
   @@index([status])
@@ -319,10 +309,10 @@ model SaleItem {
   id                  String         @id @default(uuid())
   saleId              String
   saudaContractId     String?
-  productCategory     String         // "CC Wires", "Submersible Winding Wire", "Raw Copper Bundle"
-  brand               String?        // Optional for raw copper
-  wireType            String?        // Optional for raw copper
-  qty                 Decimal        // Tons
+  productCategory     String // "CC Wires", "Submersible Winding Wire", "Raw Copper Bundle"
+  brand               String? // Optional for raw copper
+  wireType            String? // Optional for raw copper
+  qty                 Decimal // Tons
   pricePerTon         Decimal
   totalValue          Decimal
   rawCopperCostAtSale Decimal        @default(0) // The exact FIFO cost of raw copper per ton on the day this was sold. Essential for exact profit calculations.
@@ -337,16 +327,16 @@ model SaleItem {
 }
 
 model Expense {
-  id           String        @id @default(uuid())
+  id           String   @id @default(uuid())
   date         DateTime
   category     String // "Electricity", "Rent", "Maintenance", "Water", "Other"
   amount       Decimal
   description  String?
   expenseMonth String? // e.g. "January 2024"
-  status       String @default("UNPAID")
-  isDeleted    Boolean       @default(false)
-  
-  payments     PaymentRecord[]
+  status       String   @default("UNPAID")
+  isDeleted    Boolean  @default(false)
+
+  payments PaymentRecord[]
 
   @@index([date])
   @@index([category])
@@ -359,8 +349,8 @@ model MarketPrice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([date])
   @@unique([date])
+  @@index([date])
 }
 
 model SupplierLedger {
@@ -402,14 +392,12 @@ model AuditLog {
   @@index([module])
 }
 
-
-
 model JournalEntry {
   id            String        @id @default(uuid())
   date          DateTime      @default(now())
   description   String
-  referenceType String?       // "SALE", "PURCHASE", "PAYMENT", "EXPENSE", "ADVANCE", "CREDIT_NOTE", "DEBIT_NOTE"
-  referenceId   String?       // Reference ID of source record
+  referenceType String? // "SALE", "PURCHASE", "PAYMENT", "EXPENSE", "ADVANCE", "CREDIT_NOTE", "DEBIT_NOTE"
+  referenceId   String? // Reference ID of source record
   lines         JournalLine[]
   createdAt     DateTime      @default(now())
 
@@ -419,8 +407,8 @@ model JournalEntry {
 model JournalLine {
   id             String       @id @default(uuid())
   journalEntryId String
-  accountName    String       // e.g. "Accounts Receivable", "Accounts Payable", "Cash & Bank", "Sales Revenue", "COGS", "Factory Expenses", "Scrap Revenue"
-  accountType    String       // "ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"
+  accountName    String // e.g. "Accounts Receivable", "Accounts Payable", "Cash & Bank", "Sales Revenue", "COGS", "Factory Expenses", "Scrap Revenue"
+  accountType    String // "ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"
   debit          Decimal      @default(0)
   credit         Decimal      @default(0)
   journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
@@ -433,8 +421,8 @@ model CreditNote {
   id             String   @id @default(uuid())
   date           DateTime @default(now())
   saleId         String
-  qtyReturned    Decimal  // Tons returned
-  amountCredited Decimal  // Reduction in Customer AR
+  qtyReturned    Decimal // Tons returned
+  amountCredited Decimal // Reduction in Customer AR
   reason         String?
   sale           Sale     @relation(fields: [saleId], references: [id])
   createdAt      DateTime @default(now())
@@ -447,8 +435,8 @@ model DebitNote {
   id            String   @id @default(uuid())
   date          DateTime @default(now())
   purchaseId    String
-  qtyReturned   Decimal  // Tons returned
-  amountDebited Decimal  // Reduction in Supplier AP
+  qtyReturned   Decimal // Tons returned
+  amountDebited Decimal // Reduction in Supplier AP
   reason        String?
   purchase      Purchase @relation(fields: [purchaseId], references: [id])
   createdAt     DateTime @default(now())
@@ -467,8 +455,8 @@ model PeriodLock {
 model IdempotencyRecord {
   id        String   @id @default(uuid())
   key       String   @unique
-  status    String   // "PROCESSING", "SUCCESS", "FAILED"
-  response  String?  // Stringified JSON response
+  status    String // "PROCESSING", "SUCCESS", "FAILED"
+  response  String? // Stringified JSON response
   createdAt DateTime @default(now())
 }
 
@@ -479,3 +467,19 @@ model LoginAttempt {
   lockedUntil DateTime?
 }
 
+model GateReceipt {
+  id            String   @id @default(uuid())
+  date          DateTime @default(now())
+  materialType  String // "COPPER", "PVC", "OTHER"
+  supplierName  String?
+  vehicleNo     String?
+  challanWeight Decimal // Weight according to the supplier's challan (Kg)
+  actualWeight  Decimal // Actual weight measured at the factory weighbridge (Kg)
+  shortage      Decimal // challanWeight - actualWeight
+  notes         String?
+  isVerified    Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([date])
+}

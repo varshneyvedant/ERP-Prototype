@@ -186,6 +186,10 @@ export default function Sidebar() {
                     <ShoppingCart size={18} />
                     Sales Invoice
                   </Link>
+                  <Link href="/manager/gate-receipt" className={`flex items-center gap-3 p-3 text-sm rounded-md transition-colors font-medium ${pathname === '/manager/gate-receipt' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'}`}>
+                    <PackageOpen size={18} />
+                    Gate Inward Log
+                  </Link>
                   <Link href="/manager/purchase" className={`flex items-center gap-3 p-3 text-sm rounded-md transition-colors font-medium ${pathname === '/manager/purchase' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'}`}>
                     <Package size={18} />
                     Purchase Entry

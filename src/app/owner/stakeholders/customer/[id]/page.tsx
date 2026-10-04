@@ -5,9 +5,12 @@ import { useState, useEffect, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import TimeframeSelector from '@/components/ui/TimeframeSelector';
 import { Timeframe } from '@/lib/timeframe';
-import { Building, Phone, MapPin, Truck, FileText, Star, Clock, ArrowLeft, Share2, Download } from 'lucide-react';
+import { Building, Phone, MapPin, Truck, FileText, Star, Clock, ArrowLeft, Share2, Download, PieChart as PieChartIcon } from 'lucide-react';
 import { formatCurrency } from '@/lib/format';
 import { exportToPDF } from '@/lib/export/pdf';
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
+
+const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7'];
 
 function CustomerDetailContent() {
   const router = useRouter();
@@ -144,6 +147,54 @@ function CustomerDetailContent() {
               </div>
               <div className="text-[11px] text-gray-400 mt-1">Avg cycle: {data.metrics.paymentCycle.averageDays.toFixed(0)} Days</div>
             </div>
+            </div>
+
+          <div className="card bg-[#1a1a1a] p-4 sm:p-6 mb-6">
+            <h3 className="text-lg sm:text-xl font-bold mb-4 flex items-center gap-2 text-white">
+              <PieChartIcon className="text-red-500" /> Customer Janam Kundli (Ordering Habits)
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 h-64">
+               <div className="h-full">
+                  <h4 className="text-center text-sm text-gray-400 mb-2">Volume by Category (Tons)</h4>
+                  <ResponsiveContainer width="100%" height="100%">
+                     <PieChart>
+                        <Pie data={data.janamKundli.categories} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60}>
+                           {data.janamKundli.categories.map((_: any, index: number) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                        </Pie>
+                        <RechartsTooltip contentStyle={{backgroundColor: '#1e1e1e', borderColor: '#333'}} formatter={(val: any) => `${Number(val).toFixed(2)} Tons`} />
+                        <Legend wrapperStyle={{fontSize: '12px'}}/>
+                     </PieChart>
+                  </ResponsiveContainer>
+               </div>
+
+               <div className="h-full border-l border-r border-[#333]">
+                  <h4 className="text-center text-sm text-gray-400 mb-2">Volume by Brand (Tons)</h4>
+                  <ResponsiveContainer width="100%" height="100%">
+                     <PieChart>
+                        <Pie data={data.janamKundli.brands} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60}>
+                           {data.janamKundli.brands.map((_: any, index: number) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                        </Pie>
+                        <RechartsTooltip contentStyle={{backgroundColor: '#1e1e1e', borderColor: '#333'}} formatter={(val: any) => `${Number(val).toFixed(2)} Tons`} />
+                        <Legend wrapperStyle={{fontSize: '12px'}}/>
+                     </PieChart>
+                  </ResponsiveContainer>
+               </div>
+
+               <div className="h-full">
+                  <h4 className="text-center text-sm text-gray-400 mb-2">Volume by Wire Size (Tons)</h4>
+                  <ResponsiveContainer width="100%" height="100%">
+                     <PieChart>
+                        <Pie data={data.janamKundli.sizes} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60}>
+                           {data.janamKundli.sizes.map((_: any, index: number) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                        </Pie>
+                        <RechartsTooltip contentStyle={{backgroundColor: '#1e1e1e', borderColor: '#333'}} formatter={(val: any) => `${Number(val).toFixed(2)} Tons`} />
+                        <Legend wrapperStyle={{fontSize: '12px'}}/>
+                     </PieChart>
+                  </ResponsiveContainer>
+               </div>
+            </div>
+            {data.janamKundli.categories.length === 0 && <div className="text-center text-gray-500 mt-4">No data available to generate Kundli.</div>}
           </div>
 
           <div className="card bg-[#1a1a1a] p-4 sm:p-6">

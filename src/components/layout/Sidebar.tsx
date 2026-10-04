@@ -222,6 +222,10 @@ export default function Sidebar() {
                     <HandCoins size={18} />
                     Give Advance
                   </Link>
+                  <Link href="/manager/day-close" className={`flex items-center gap-3 p-3 text-sm rounded-md transition-colors font-medium ${pathname === '/manager/day-close' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'}`}>
+                    <Lock size={18} />
+                    Day Close
+                  </Link>
                 </div>
               </div>
            </>

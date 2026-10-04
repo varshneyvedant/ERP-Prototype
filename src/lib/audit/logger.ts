@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 
 interface AuditLogOptions {
-  action: 'CREATE' | 'UPDATE' | 'DELETE';
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'DAY_CLOSE';
   module: string;
   description: string;
   details?: any; // e.g. JSON of old/new data

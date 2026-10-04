@@ -64,8 +64,8 @@ export async function POST(request: Request) {
       for (const item of items) {
           const qty = Number(item.qty);
           const pricePerTon = (Number(item.pricePerKg) || 0) * 1000;
-          const totalValue = qty * pricePerTon;
-          grandTotal += totalValue;
+          const totalValue = Math.round(qty * pricePerTon * 100) / 100;
+          grandTotal = Math.round((grandTotal + totalValue) * 100) / 100;
 
           if (qty < 0.01 || pricePerTon < 0.01) {
               throw new Error('Quantity and price must be greater than zero.');
@@ -206,8 +206,8 @@ export async function POST(request: Request) {
       const hasUnmappedItems = items.some(i => !i.saudaContractId);
 
       if ((isLimitExceeded || hasOverdueInvoices || (activeSaudaCount > 0 && hasUnmappedItems)) && role !== 'owner') {
-        const serverPin = process.env.OVERRIDE_PIN || '1234';
-        if (!overridePin || overridePin !== serverPin) {
+        const serverPin = process.env.OVERRIDE_PIN;
+        if (!serverPin || !overridePin || overridePin !== serverPin) {
           let reason = '';
           if (activeSaudaCount > 0 && hasUnmappedItems) {
             reason = 'Customer has active Sauda booking contract(s). Bypassing Sauda to sell at Spot Price requires Owner PIN.';

@@ -471,3 +471,11 @@ model IdempotencyRecord {
   response  String?  // Stringified JSON response
   createdAt DateTime @default(now())
 }
+
+model LoginAttempt {
+  key         String    @id
+  count       Int       @default(0)
+  lastAttempt DateTime  @default(now())
+  lockedUntil DateTime?
+}
+

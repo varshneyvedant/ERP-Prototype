@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+import { timingSafeEqual } from 'crypto';
 
 export async function POST(request: Request) {
   try {
@@ -14,9 +15,15 @@ export async function POST(request: Request) {
     }
 
     const { pin } = await request.json();
-    const overridePin = process.env.OVERRIDE_PIN || '1234';
+    const overridePin = process.env.OVERRIDE_PIN;
 
-    if (pin === overridePin) {
+    if (!overridePin) {
+      return NextResponse.json({ error: 'Override PIN is not configured on the server. Ask the Owner to set OVERRIDE_PIN.' }, { status: 503 });
+    }
+
+    const a = Buffer.from(String(pin ?? ''));
+    const b = Buffer.from(overridePin);
+    if (a.length === b.length && timingSafeEqual(a, b)) {
       return NextResponse.json({ success: true });
     }
 

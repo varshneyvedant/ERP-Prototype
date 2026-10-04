@@ -8,6 +8,7 @@ import {
   Activity, ArrowRight, RotateCcw 
 } from 'lucide-react';
 import Link from 'next/link';
+import AlertsPanel from '@/components/AlertsPanel';
 import { useState } from 'react';
 import { formatCurrency, formatDateIST } from '@/lib/format';
 
@@ -111,6 +112,8 @@ export default function OwnerDashboard() {
           <RefreshCw size={15} className={isLoading ? "animate-spin" : ""} /> Refresh
         </button>
       </div>
+
+      <AlertsPanel />
 
       {isLoading ? (
         <div className="text-gray-400 p-8 card text-center">Loading executive command dashboard...</div>

@@ -72,7 +72,7 @@ export async function POST(request: Request) {
 
     const quantity = qty;
     const price = pricePerTon;
-    const totalValue = quantity * price;
+    const totalValue = Math.round(quantity * price * 100) / 100;
 
     if (quantity < 0.01 || price < 0.01) {
       const errRes = { error: 'it is too small quantity to do this transaction contact your developer' };

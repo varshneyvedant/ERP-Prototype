@@ -55,7 +55,7 @@ export default function Sidebar() {
     localStorage.setItem('simulated_role', newRole);
   };
 
-  const dashboardLink = displayRole === 'owner' ? '/owner/dashboard' : '/manager/dashboard';
+  const dashboardLink = displayRole === 'owner' ? '/owner/dashboard' : displayRole === 'accountant' ? '/owner/financials' : '/manager/dashboard';
 
   return (
     <>
@@ -227,6 +227,26 @@ export default function Sidebar() {
            </>
         )}
 
+        {displayRole === 'accountant' && (
+           <div className="mb-4">
+             <h3 className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Accounts (Read-only)</h3>
+             <div className="flex flex-col gap-1">
+               <Link href="/owner/financials" className={`flex items-center gap-3 p-3 text-sm rounded-md transition-colors font-medium ${pathname === '/owner/financials' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'}`}>
+                 <LineChart size={18} />
+                 Financial Dashboard
+               </Link>
+               <Link href="/owner/journals" className={`flex items-center gap-3 p-3 text-sm rounded-md transition-colors font-medium ${pathname === '/owner/journals' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'}`}>
+                 <FileText size={18} />
+                 General Ledger GL
+               </Link>
+               <Link href="/reports" className={`flex items-center gap-3 p-3 text-sm rounded-md transition-colors font-medium ${pathname === '/reports' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'}`}>
+                 <FileText size={18} />
+                 Reports: Aging, Profit
+               </Link>
+             </div>
+           </div>
+        )}
+
         {displayRole === 'owner' && (
            <>
               <div className="mb-4">
@@ -247,6 +267,14 @@ export default function Sidebar() {
                   <Link href="/owner/period-lock" className={`flex items-center gap-3 p-3 text-sm rounded-md transition-colors font-medium ${pathname === '/owner/period-lock' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'}`}>
                     <Lock size={18} />
                     Period Locking
+                  </Link>
+                  <Link href="/reports" className={`flex items-center gap-3 p-3 text-sm rounded-md transition-colors font-medium ${pathname === '/reports' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'}`}>
+                    <FileText size={18} />
+                    Reports: Aging, Profit, Backup
+                  </Link>
+                  <Link href="/owner/salary" className={`flex items-center gap-3 p-3 text-sm rounded-md transition-colors font-medium ${pathname === '/owner/salary' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'}`}>
+                    <Receipt size={18} />
+                    Salary Payout
                   </Link>
                 </div>
               </div>

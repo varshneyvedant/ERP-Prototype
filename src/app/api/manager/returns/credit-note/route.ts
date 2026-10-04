@@ -98,6 +98,34 @@ export async function POST(request: Request) {
         }
       });
 
+      // If the invoice is now OVERPAID (customer had already paid in full), release the excess:
+      // trim the newest payment allocations so that money becomes unapplied customer credit.
+      const netInvoice = Math.max(0, Number(sale.totalValue) - (priorAmt + Number(amountCredited)));
+      const paidSoFar = Number(sale.amountPaid);
+      if (paidSoFar > netInvoice + 0.005) {
+        let excess = Math.round((paidSoFar - netInvoice) * 100) / 100;
+        const allocations = await tx.invoicePayment.findMany({
+          where: { saleId },
+          include: { paymentRecord: { select: { date: true } } }
+        });
+        allocations.sort((a, b) => b.paymentRecord.date.getTime() - a.paymentRecord.date.getTime());
+        for (const alloc of allocations) {
+          if (excess <= 0.004) break;
+          const cut = Math.min(Number(alloc.amountApplied), excess);
+          const left = Number(alloc.amountApplied) - cut;
+          if (left <= 0.004) {
+            await tx.invoicePayment.delete({ where: { id: alloc.id } });
+          } else {
+            await tx.invoicePayment.update({ where: { id: alloc.id }, data: { amountApplied: left } });
+          }
+          excess -= cut;
+        }
+        await tx.sale.update({
+          where: { id: saleId },
+          data: { amountPaid: netInvoice }
+        });
+      }
+
       // Calculate COGS amount to reverse
       const totalSaleQty = sale.items.reduce((acc, item) => acc + Number(item.qty), 0);
       const totalCogs = sale.items.reduce((acc, item) => acc + (Number(item.qty) * Number(item.rawCopperCostAtSale)), 0);

@@ -38,8 +38,18 @@ export async function middleware(request: NextRequest) {
     }
 
     if (pathname.startsWith('/api/owner/')) {
-      if (tokenRole !== 'owner') {
+      const accountantAllowed =
+        tokenRole === 'accountant' &&
+        request.method === 'GET' &&
+        (pathname.startsWith('/api/owner/financials') || pathname.startsWith('/api/owner/journals'));
+      if (tokenRole !== 'owner' && !accountantAllowed) {
         return NextResponse.json({ error: 'Forbidden: Owner role required' }, { status: 403 });
+      }
+    }
+
+    if (pathname.startsWith('/api/reports/')) {
+      if (tokenRole !== 'owner' && tokenRole !== 'accountant') {
+        return NextResponse.json({ error: 'Forbidden: Owner or Accountant role required' }, { status: 403 });
       }
     }
 
@@ -65,6 +75,14 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
+  const redirectToLogin = () => {
+    const url = request.nextUrl.clone();
+    url.pathname = '/login';
+    const response = NextResponse.redirect(url);
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    return response;
+  };
+
   // Root redirect based on role
   if (pathname === '/') {
     const url = request.nextUrl.clone();
@@ -72,6 +90,8 @@ export async function middleware(request: NextRequest) {
       url.pathname = '/owner/dashboard';
     } else if (tokenRole === 'manager') {
       url.pathname = '/manager/dashboard';
+    } else if (tokenRole === 'accountant') {
+      url.pathname = '/owner/financials';
     } else {
       url.pathname = '/login';
     }
@@ -80,15 +100,22 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  // Role-based route guard for Owner pages
+  // Role-based route guard for Owner pages (accountant: finance read-only pages only)
   if (pathname.startsWith('/owner/')) {
-    if (tokenRole !== 'owner') {
-      const url = request.nextUrl.clone();
-      url.pathname = '/login';
-      const response = NextResponse.redirect(url);
-      response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
-      return response;
-    }
+    const accountantAllowed =
+      tokenRole === 'accountant' &&
+      (pathname.startsWith('/owner/financials') || pathname.startsWith('/owner/journals'));
+    if (tokenRole !== 'owner' && !accountantAllowed) return redirectToLogin();
+  }
+
+  // Reports: owner + accountant
+  if (pathname.startsWith('/reports')) {
+    if (tokenRole !== 'owner' && tokenRole !== 'accountant') return redirectToLogin();
+  }
+
+  // Manager pages: manager + owner
+  if (pathname.startsWith('/manager/')) {
+    if (tokenRole !== 'manager' && tokenRole !== 'owner') return redirectToLogin();
   }
 
   const response = NextResponse.next();

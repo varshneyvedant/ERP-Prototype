@@ -2,24 +2,19 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-
-
 import { prisma } from '@/lib/prisma';
-
-
-import { format, startOfDay, endOfDay, eachDayOfInterval, eachMonthOfInterval, eachYearOfInterval, isSameMonth, isSameYear, startOfMonth, startOfYear } from 'date-fns';
-
-
+import { format, eachDayOfInterval, eachMonthOfInterval, eachYearOfInterval } from 'date-fns';
 import { getStartDateFromTimeframe, Timeframe } from '@/lib/timeframe';
 
-
+const N = (v: any) => Number(v ?? 0);
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if ((session.user as any).role?.toLowerCase() !== 'owner') {
+  const role = (session.user as any).role?.toLowerCase();
+  if (role !== 'owner' && role !== 'accountant') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -29,241 +24,152 @@ export async function GET(request: Request) {
     const startDate = getStartDateFromTimeframe(timeframe);
     const endDate = new Date();
 
-    // 1. Expense Breakdown (Pie Chart) - Unchanged, just uses timeframe
-    const expenses = await prisma.expense.groupBy({
-      by: ['category'],
-      where: { date: { gte: startDate, lte: endDate } },
-      _sum: { amount: true }
-    });
-    const expenseData = expenses.map(e => ({
-      name: e.category,
-      value: Number(e._sum.amount || 0)
-    }));
+    // Chart granularity
+    let formatStr = 'yyyy';
+    let keyFmt = 'yyyy';
+    let intervalsFn: (start: Date) => Date[];
+    if (['1W', '1M'].includes(timeframe)) {
+      formatStr = 'dd MMM'; keyFmt = 'yyyy-MM-dd';
+      intervalsFn = (s) => eachDayOfInterval({ start: s, end: endDate });
+    } else if (['3M', '6M', '1Y', 'FY'].includes(timeframe)) {
+      formatStr = 'MMM yyyy'; keyFmt = 'yyyy-MM';
+      intervalsFn = (s) => eachMonthOfInterval({ start: s, end: endDate });
+    } else {
+      formatStr = 'yyyy'; keyFmt = 'yyyy';
+      intervalsFn = (s) => eachYearOfInterval({ start: s, end: endDate });
+    }
 
-    // Calculate Global Net Amount (STATIC, not filtered by timeframe)
-    // IMPORTANT: Customer Ledger is positive when they owe us (Invoice), negative when they pay us.
-    // Supplier Ledger is positive when we owe them (Invoice), negative when we pay them.
-    const allCustomerLedgers = await prisma.customerLedger.aggregate({ where: { isDeleted: false },  _sum: { amount: true } });
-    const totalReceivables = allCustomerLedgers._sum.amount || 0;
+    let chartStart = startDate;
+    if (timeframe === 'ALL') {
+      const firstSale = await prisma.sale.findFirst({ orderBy: { date: 'asc' }, select: { date: true } });
+      chartStart = firstSale ? firstSale.date : new Date(new Date().getFullYear() - 3, 0, 1);
+    }
+    const intervals = intervalsFn(chartStart);
+    const rangeWhere = { gte: chartStart < startDate ? chartStart : startDate, lte: endDate };
 
-    const allSupplierLedgers = await prisma.supplierLedger.aggregate({ where: { isDeleted: false },  _sum: { amount: true } });
-    const totalPayables = allSupplierLedgers._sum.amount || 0;
+    // ---- ALL independent queries in parallel (was ~25 sequential round-trips to Neon) ----
+    const [
+      expensesByCat, custLedgerAgg, suppLedgerAgg,
+      cashIn, cashOut, paidExpenses, advancesAgg, repaymentsAgg,
+      prodAgg, salesRaw, expRaw, marketPricesRaw, scrapSalesRaw,
+      paidSales, paidPurchases,
+      purchasedAgg, producedAgg, soldRawAgg,
+      scrapStats, lastScrapSales,
+      plLines, bsLines
+    ] = await Promise.all([
+      prisma.expense.groupBy({ by: ['category'], where: { isDeleted: false, date: { gte: startDate, lte: endDate } }, _sum: { amount: true } }),
+      prisma.customerLedger.aggregate({ where: { isDeleted: false }, _sum: { amount: true } }),
+      prisma.supplierLedger.aggregate({ where: { isDeleted: false }, _sum: { amount: true } }),
+      prisma.paymentRecord.aggregate({ where: { type: 'INCOMING', status: 'APPROVED' }, _sum: { amount: true } }),
+      prisma.paymentRecord.aggregate({ where: { type: 'OUTGOING', status: 'APPROVED' }, _sum: { amount: true } }),
+      prisma.expense.aggregate({ where: { isDeleted: false, status: 'PAID' }, _sum: { amount: true } }),
+      prisma.advance.aggregate({ _sum: { amount: true } }),
+      prisma.advanceRepayment.aggregate({ _sum: { amount: true } }),
+      prisma.production.aggregate({
+        where: { isDeleted: false, date: { gte: startDate, lte: endDate } },
+        _sum: { rawCopperUsed: true, wireProduced: true }
+      }),
+      prisma.sale.findMany({
+        where: { isDeleted: false, date: rangeWhere },
+        select: { date: true, totalValue: true, items: { select: { qty: true, rawCopperCostAtSale: true } } }
+      }),
+      prisma.expense.findMany({ where: { isDeleted: false, date: rangeWhere }, select: { date: true, amount: true } }),
+      prisma.marketPrice.findMany({ where: { date: rangeWhere }, select: { date: true, price: true } }),
+      prisma.scrapInventory.findMany({ where: { isDeleted: false, type: 'SOLD', date: rangeWhere }, select: { date: true, revenue: true } }),
+      prisma.sale.findMany({ where: { isDeleted: false, fullyPaidDate: { not: null } }, select: { date: true, fullyPaidDate: true } }),
+      prisma.purchase.findMany({ where: { isDeleted: false, fullyPaidDate: { not: null } }, select: { date: true, fullyPaidDate: true } }),
+      prisma.purchase.aggregate({ where: { isDeleted: false }, _sum: { qty: true } }),
+      prisma.production.aggregate({ where: { isDeleted: false }, _sum: { rawCopperUsed: true } }),
+      prisma.saleItem.aggregate({ where: { sale: { isDeleted: false }, productCategory: 'Raw Copper Bundle' }, _sum: { qty: true } }),
+      prisma.production.aggregate({ where: { isDeleted: false }, _sum: { rawCopperUsed: true, scrapGenerated: true } }),
+      prisma.scrapInventory.findMany({ where: { isDeleted: false, type: 'SOLD' }, take: 5, orderBy: { date: 'desc' } }),
+      prisma.journalLine.groupBy({
+        by: ['accountName', 'accountType'],
+        where: { journalEntry: { date: { gte: startDate, lte: endDate } } },
+        _sum: { debit: true, credit: true }
+      }),
+      prisma.journalLine.groupBy({
+        by: ['accountName', 'accountType'],
+        where: { journalEntry: { date: { lte: endDate } } },
+        _sum: { debit: true, credit: true }
+      })
+    ]);
 
-    // Global net position strictly means: Receivables - Payables
-    const netAmount = Number(totalReceivables) - Number(totalPayables);
+    const expenseData = expensesByCat.map(e => ({ name: e.category, value: N(e._sum.amount) }));
 
-    // Cash In Hand Calculation:
-    // + All INCOMING PaymentRecords (Customer Payments, Scrap Sales, Initial Capital)
-    // - All OUTGOING PaymentRecords (Supplier Payments)
-    // - All PAID Factory Expenses
-    // - All Salary Advances
-    // + All Salary Advance Repayments
-    const tempCashInHandIn = await prisma.paymentRecord.aggregate({ where: { type: 'INCOMING', status: 'APPROVED' }, _sum: { amount: true } });
-    const tempCashInHandOut = await prisma.paymentRecord.aggregate({ where: { type: 'OUTGOING', status: 'APPROVED' }, _sum: { amount: true } });
-    const tempExpenses = await prisma.expense.aggregate({ where: { isDeleted: false, status: 'PAID' },  _sum: { amount: true } });
-    const tempAdvances = await prisma.advance.aggregate({ _sum: { amount: true } });
-    const tempRepayments = await prisma.advanceRepayment.aggregate({ _sum: { amount: true } });
+    // Global positions
+    const totalReceivables = N(custLedgerAgg._sum.amount);
+    const totalPayables = N(suppLedgerAgg._sum.amount);
+    const netAmount = totalReceivables - totalPayables;
 
-    const totalCashIn = Number(tempCashInHandIn._sum.amount || 0) + Number(tempRepayments._sum.amount || 0);
-    const totalCashOut = Number(tempCashInHandOut._sum.amount || 0) + Number(tempExpenses._sum.amount || 0) + Number(tempAdvances._sum.amount || 0);
-    const currentCashInHand = totalCashIn - totalCashOut;
+    const totalCashIn = N(cashIn._sum.amount) + N(repaymentsAgg._sum.amount);
+    const totalCashOut = N(cashOut._sum.amount) + N(paidExpenses._sum.amount) + N(advancesAgg._sum.amount);
+    const cashInHand = totalCashIn - totalCashOut;
 
-    const cashInHand = currentCashInHand;
-
-    // Production Yield %
-    const totalProd = await prisma.production.aggregate({
-      where: { isDeleted: false, date: { gte: startDate, lte: endDate } },
-      _sum: { rawCopperUsed: true, wireProduced: true }
-    });
-    const yieldPercent = totalProd._sum.rawCopperUsed
-      ? (Number(totalProd._sum.wireProduced || 0) / Number(totalProd._sum.rawCopperUsed)) * 100
+    const yieldPercent = prodAgg._sum.rawCopperUsed
+      ? (N(prodAgg._sum.wireProduced) / N(prodAgg._sum.rawCopperUsed)) * 100
       : 0;
 
-    // 2. Dynamic Revenue vs Expenses Graph
-    // Determine interval type based on timeframe
-    let intervals: Date[] = [];
-    let formatStr = '';
-    let isDay = false, isMonth = false, isYear = false;
-
-    if (['1W', '1M'].includes(timeframe)) {
-       intervals = eachDayOfInterval({ start: startDate, end: endDate });
-       formatStr = 'dd MMM';
-       isDay = true;
-    } else if (['3M', '6M', '1Y', 'FY'].includes(timeframe)) {
-       intervals = eachMonthOfInterval({ start: startDate, end: endDate });
-       formatStr = 'MMM yyyy';
-       isMonth = true;
-    } else { // 3Y, 5Y, 10Y, ALL
-       // Limit 'ALL' to the first recorded date to prevent massive loops
-       let finalStart = startDate;
-       if (timeframe === 'ALL') {
-          const firstSale = await prisma.sale.findFirst({ orderBy: { date: 'asc' }});
-          finalStart = firstSale ? firstSale.date : new Date(new Date().getFullYear() - 3, 0, 1);
-       }
-       intervals = eachYearOfInterval({ start: finalStart, end: endDate });
-       formatStr = 'yyyy';
-       isYear = true;
+    // ---- Chart: O(N) bucketing instead of O(intervals x rows) filtering ----
+    const keyOf = (d: Date) => format(d, keyFmt);
+    type Bucket = { rev: number; scrapRev: number; cogs: number; exp: number; priceSum: number; priceCnt: number };
+    const buckets = new Map<string, Bucket>();
+    const bucket = (k: string): Bucket => {
+      let b = buckets.get(k);
+      if (!b) { b = { rev: 0, scrapRev: 0, cogs: 0, exp: 0, priceSum: 0, priceCnt: 0 }; buckets.set(k, b); }
+      return b;
+    };
+    let timeframeTons = 0;
+    for (const s of salesRaw) {
+      const b = bucket(keyOf(s.date));
+      b.rev += N(s.totalValue);
+      for (const it of s.items) {
+        b.cogs += N(it.qty) * N(it.rawCopperCostAtSale);
+        timeframeTons += N(it.qty);
+      }
     }
+    for (const s of scrapSalesRaw) bucket(keyOf(s.date)).scrapRev += N(s.revenue);
+    for (const e of expRaw) bucket(keyOf(e.date)).exp += N(e.amount);
+    for (const p of marketPricesRaw) { const b = bucket(keyOf(p.date)); b.priceSum += N(p.price); b.priceCnt += 1; }
 
-    const dynamicData = [];
-
-    // Fetch all raw data within timeframe once to avoid N+1 queries
-    const salesRaw = await prisma.sale.findMany({
-        where: { isDeleted: false, date: { gte: startDate, lte: endDate } },
-        include: { items: true }
+    const dynamicData = intervals.map(d => {
+      const b = buckets.get(keyOf(d));
+      const revenue = b ? b.rev + b.scrapRev : 0;
+      const gross = b ? revenue - b.cogs : 0;
+      const exp = b ? b.exp : 0;
+      return {
+        period: format(d, formatStr),
+        Revenue: revenue,
+        Expenses: exp,
+        GrossProfit: gross,
+        NetProfit: gross - exp,
+        CopperPrice: b && b.priceCnt > 0 ? b.priceSum / b.priceCnt : 0
+      };
     });
-    const expRaw = await prisma.expense.findMany({ where: { isDeleted: false, date: { gte: startDate, lte: endDate } } });
-    const marketPricesRaw = await prisma.marketPrice.findMany({
-        where: { date: { gte: startDate, lte: endDate } },
-        orderBy: { date: 'asc' }
-    });
-    const scrapSalesRaw = await prisma.scrapInventory.findMany({
-        where: { isDeleted: false, type: 'SOLD', date: { gte: startDate, lte: endDate } }
-    });
 
-    for (const intervalDate of intervals) {
-       let s = 0, e = 0;
-
-       let items: any[] = [];
-
-       if (isDay) {
-          const matchingSales = salesRaw.filter(x => startOfDay(x.date).getTime() === startOfDay(intervalDate).getTime());
-          const matchingScrap = scrapSalesRaw.filter(x => startOfDay(x.date).getTime() === startOfDay(intervalDate).getTime());
-          
-          s = matchingSales.reduce((sum, x) => sum + Number(x.totalValue), 0) + matchingScrap.reduce((sum, x) => sum + Number(x.revenue), 0);
-          e = expRaw.filter(x => startOfDay(x.date).getTime() === startOfDay(intervalDate).getTime()).reduce((sum, x) => sum + Number(x.amount), 0);
-          items = matchingSales.flatMap(ms => ms.items);
-       } else if (isMonth) {
-          const matchingSales = salesRaw.filter(x => isSameMonth(x.date, intervalDate));
-          const matchingScrap = scrapSalesRaw.filter(x => isSameMonth(x.date, intervalDate));
-
-          s = matchingSales.reduce((sum, x) => sum + Number(x.totalValue), 0) + matchingScrap.reduce((sum, x) => sum + Number(x.revenue), 0);
-          e = expRaw.filter(x => isSameMonth(x.date, intervalDate)).reduce((sum, x) => sum + Number(x.amount), 0);
-          items = matchingSales.flatMap(ms => ms.items);
-       } else if (isYear) {
-          const matchingSales = salesRaw.filter(x => isSameYear(x.date, intervalDate));
-          const matchingScrap = scrapSalesRaw.filter(x => isSameYear(x.date, intervalDate));
-
-          s = matchingSales.reduce((sum, x) => sum + Number(x.totalValue), 0) + matchingScrap.reduce((sum, x) => sum + Number(x.revenue), 0);
-          e = expRaw.filter(x => isSameYear(x.date, intervalDate)).reduce((sum, x) => sum + Number(x.amount), 0);
-          items = matchingSales.flatMap(ms => ms.items);
-       }
-
-       // Calculate Gross Profit EXACTLY for this period
-       // Revenue - (Sum of each item's qty * rawCopperCostAtSale)
-       let periodCogs = 0;
-       items.forEach((item: any) => {
-           periodCogs += (Number(item.qty) * item.rawCopperCostAtSale);
-       });
-       const grossProfit = s - periodCogs;
-
-       // Get average market price for this interval
-       let avgMarketPrice = 0;
-       let matchingPrices: any[] = [];
-       if (isDay) matchingPrices = marketPricesRaw.filter(x => startOfDay(x.date).getTime() === startOfDay(intervalDate).getTime());
-       else if (isMonth) matchingPrices = marketPricesRaw.filter(x => isSameMonth(x.date, intervalDate));
-       else if (isYear) matchingPrices = marketPricesRaw.filter(x => isSameYear(x.date, intervalDate));
-
-       if (matchingPrices.length > 0) {
-           const sum = matchingPrices.reduce((acc, p) => acc + Number(p.price), 0);
-           avgMarketPrice = sum / matchingPrices.length;
-       }
-
-       dynamicData.push({
-         period: format(intervalDate, formatStr),
-         Revenue: s,
-         Expenses: e,
-         GrossProfit: grossProfit,
-         NetProfit: grossProfit - e,
-         CopperPrice: avgMarketPrice
-       });
-    }
-
-    // Totals for summary cards
-    const totalTimeframeRevenue = dynamicData.reduce((acc, curr) => acc + curr.Revenue, 0);
-    const totalTimeframeGross = dynamicData.reduce((acc, curr) => acc + curr.GrossProfit, 0);
-    const pureExpenses = expRaw.reduce((sum, x) => sum + Number(x.amount), 0);
-    // Net profit = Gross profit (which is Revenue - COGS) - Operating Expenses
+    const totalTimeframeRevenue = dynamicData.reduce((a, c) => a + c.Revenue, 0);
+    const totalTimeframeGross = dynamicData.reduce((a, c) => a + c.GrossProfit, 0);
+    const pureExpenses = expRaw.reduce((s, x) => s + N(x.amount), 0);
     const totalTimeframeNet = totalTimeframeGross - pureExpenses;
+    const avgProfitPerTon = timeframeTons > 0 ? totalTimeframeNet / timeframeTons : 0;
 
-    // Timeframe total Tons sold
-    const allItemsInTimeframe = salesRaw.flatMap(s => s.items);
-    const totalTonsSold = allItemsInTimeframe.reduce((sum, i) => sum + Number(i.qty), 0);
-    const avgProfitPerTon = totalTonsSold > 0 ? (totalTimeframeNet / totalTonsSold) : 0;
-
-    // Global Payment Analytics (Sales)
-    const paidSales = await prisma.sale.findMany({
-      where: {
-        isDeleted: false,
-        fullyPaidDate: { not: null }
-      },
-      select: {
-        date: true,
-        fullyPaidDate: true
+    // Payment analytics
+    const dayMs = 1000 * 60 * 60 * 24;
+    const waitStats = (rows: { date: Date; fullyPaidDate: Date | null }[]) => {
+      let total = 0, slowest = 0;
+      for (const r of rows) {
+        const w = new Date(r.fullyPaidDate!).getTime() - new Date(r.date).getTime();
+        total += w;
+        if (w / dayMs > slowest) slowest = w / dayMs;
       }
-    });
+      return { avgDays: rows.length ? total / rows.length / dayMs : 0, slowestDays: slowest, completedOrders: rows.length };
+    };
 
-    let customerAvgDays = 0;
-    let customerSlowestDays = 0;
-    const customerCompleted = paidSales.length;
-
-    if (customerCompleted > 0) {
-      let totalCustomerWaitMs = 0;
-      paidSales.forEach(s => {
-        const waitMs = new Date(s.fullyPaidDate!).getTime() - new Date(s.date).getTime();
-        const waitDays = waitMs / (1000 * 60 * 60 * 24);
-        totalCustomerWaitMs += waitMs;
-        if (waitDays > customerSlowestDays) {
-          customerSlowestDays = waitDays;
-        }
-      });
-      customerAvgDays = (totalCustomerWaitMs / customerCompleted) / (1000 * 60 * 60 * 24);
-    }
-
-    // Global Payment Analytics (Purchases)
-    const paidPurchases = await prisma.purchase.findMany({
-      where: {
-        isDeleted: false,
-        fullyPaidDate: { not: null }
-      },
-      select: {
-        date: true,
-        fullyPaidDate: true
-      }
-    });
-
-    let supplierAvgDays = 0;
-    let supplierSlowestDays = 0;
-    const supplierCompleted = paidPurchases.length;
-
-    if (supplierCompleted > 0) {
-      let totalSupplierWaitMs = 0;
-      paidPurchases.forEach(p => {
-        const waitMs = new Date(p.fullyPaidDate!).getTime() - new Date(p.date).getTime();
-        const waitDays = waitMs / (1000 * 60 * 60 * 24);
-        totalSupplierWaitMs += waitMs;
-        if (waitDays > supplierSlowestDays) {
-          supplierSlowestDays = waitDays;
-        }
-      });
-      supplierAvgDays = (totalSupplierWaitMs / supplierCompleted) / (1000 * 60 * 60 * 24);
-    }
-
-    // 3. Predictive Scrap & Raw Copper Inventory Optimization Calculations
-    const totalPurchasedObj = await prisma.purchase.aggregate({ where: { isDeleted: false },  _sum: { qty: true } });
-    const totalProducedObj = await prisma.production.aggregate({ where: { isDeleted: false },  _sum: { rawCopperUsed: true } });
-    const totalSoldRawObj = await prisma.saleItem.aggregate({ where: { sale: { isDeleted: false }, productCategory: 'Raw Copper Bundle' }, _sum: { qty: true }});
-    
-    const rawCopperStock = Number(totalPurchasedObj._sum.qty || 0) - (Number(totalProducedObj._sum.rawCopperUsed || 0) + Number(totalSoldRawObj._sum.qty || 0));
-
-    const diffDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
-    const timeframeCopperUsed = (await prisma.production.aggregate({
-      where: { isDeleted: false, date: { gte: startDate, lte: endDate } },
-      _sum: { rawCopperUsed: true }
-    }))._sum.rawCopperUsed || 0;
-
-    const avgDailyConsumption = Number(timeframeCopperUsed) / diffDays;
-    const daysRemaining = avgDailyConsumption > 0 ? (rawCopperStock / avgDailyConsumption) : 999;
+    // Inventory optimisation
+    const rawCopperStock = N(purchasedAgg._sum.qty) - (N(producedAgg._sum.rawCopperUsed) + N(soldRawAgg._sum.qty));
+    const diffDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / dayMs));
+    const avgDailyConsumption = N(prodAgg._sum.rawCopperUsed) / diffDays;
+    const daysRemaining = avgDailyConsumption > 0 ? rawCopperStock / avgDailyConsumption : 999;
 
     let reorderUrgency = 'NORMAL';
     let recommendedReorderQty = 0;
@@ -275,79 +181,41 @@ export async function GET(request: Request) {
       recommendedReorderQty = Math.max(10, avgDailyConsumption * 10);
     }
 
-    const scrapStats = await prisma.production.aggregate({
-      where: { isDeleted: false },
-      _sum: { rawCopperUsed: true, scrapGenerated: true }
-    });
-    const scrapRatio = scrapStats._sum.rawCopperUsed ? (Number(scrapStats._sum.scrapGenerated || 0) / Number(scrapStats._sum.rawCopperUsed)) : 0.05;
+    const scrapRatio = scrapStats._sum.rawCopperUsed
+      ? N(scrapStats._sum.scrapGenerated) / N(scrapStats._sum.rawCopperUsed)
+      : 0.05;
     const predictedScrapTons = rawCopperStock * scrapRatio;
-
-    const lastScrapSales = await prisma.scrapInventory.findMany({
-      where: { isDeleted: false, type: 'SOLD' },
-      take: 5,
-      orderBy: { date: 'desc' }
-    });
-    const avgScrapPrice = lastScrapSales.length > 0 
-      ? (lastScrapSales.reduce((sum, s) => sum + Number(s.revenue), 0) / lastScrapSales.reduce((sum, s) => sum + Number(s.qty), 0))
+    const lastScrapQty = lastScrapSales.reduce((s, x) => s + N(x.qty), 0);
+    const avgScrapPrice = lastScrapSales.length > 0 && lastScrapQty > 0
+      ? lastScrapSales.reduce((s, x) => s + N(x.revenue), 0) / lastScrapQty
       : 450000;
     const predictedScrapValue = predictedScrapTons * avgScrapPrice;
 
-    // P&L Calculations (Timeframe-based)
-    const plLines = await prisma.journalLine.groupBy({
-      by: ['accountName', 'accountType'],
-      where: {
-        journalEntry: {
-          date: { gte: startDate, lte: endDate }
-        }
-      },
-      _sum: { debit: true, credit: true }
-    });
-
-    const getPLAmount = (name: string, type: string) => {
-      const line = plLines.find(l => l.accountName === name);
-      if (!line) return 0;
-      const dr = Number(line._sum.debit || 0);
-      const cr = Number(line._sum.credit || 0);
-      return type === 'REVENUE' ? (cr - dr) : (dr - cr);
+    // ---- P&L from the journal (all P&L accounts, incl. salary / scrap / process loss) ----
+    const net = (l: { _sum: { debit: any; credit: any } }) => N(l._sum.debit) - N(l._sum.credit); // debit-positive
+    const plBy = (name: string) => {
+      const l = plLines.find(x => x.accountName === name);
+      return l ? net(l) : 0;
     };
-
-    const plSalesRevenue = getPLAmount('Sales Revenue', 'REVENUE');
-    // Sum standard scrap accounts
-    const plScrapRevenue = getPLAmount('Scrap Sales', 'REVENUE') || getPLAmount('Scrap Revenue', 'REVENUE') || 0;
+    const plSalesRevenue = -plBy('Sales Revenue');
+    const plScrapRevenue = -(plBy('Scrap Sales') + plBy('Scrap Revenue'));
     const plTotalRevenue = plSalesRevenue + plScrapRevenue;
-
-    const plCogs = getPLAmount('Cost of Goods Sold', 'EXPENSE');
+    const plCogs = plBy('Cost of Goods Sold') + plBy('Cost of Scrap Sold');
     const plGrossProfit = plTotalRevenue - plCogs;
+    // Overhead Absorbed is a contra-expense (credit) - it moves cost into inventory
+    const plOpex =
+      plBy('Factory Expenses') + plBy('Salary Expense') + plBy('Process Loss Expense') + plBy('Manufacturing Overhead Absorbed');
+    const plNetProfit = plGrossProfit - plOpex;
 
-    const plFactoryExpenses = getPLAmount('Factory Expenses', 'EXPENSE');
-    const plNetProfit = plGrossProfit - plFactoryExpenses;
-
-    // Balance Sheet Calculations (From inception to endDate)
-    const bsLines = await prisma.journalLine.groupBy({
-      by: ['accountName', 'accountType'],
-      where: {
-        journalEntry: {
-          date: { lte: endDate }
-        }
-      },
-      _sum: { debit: true, credit: true }
-    });
-
-    const getBSAmount = (name: string, type: string) => {
-      const line = bsLines.find(l => l.accountName === name);
-      if (!line) return 0;
-      const dr = Number(line._sum.debit || 0);
-      const cr = Number(line._sum.credit || 0);
-      return type === 'ASSET' ? (dr - cr) : (cr - dr);
-    };
-
-    const bsCashBank = getBSAmount('Cash & Bank', 'ASSET');
-    const bsAR = getBSAmount('Accounts Receivable', 'ASSET');
-    const bsInventory = getBSAmount('Inventory', 'ASSET');
-    const bsAdvances = getBSAmount('Employee Advances', 'ASSET');
+    // ---- Balance sheet: roll up ALL inventory sub-accounts ----
+    const bsAssetBy = (match: (n: string) => boolean) =>
+      bsLines.filter(l => match(l.accountName)).reduce((s, l) => s + net(l), 0);
+    const bsCashBank = bsAssetBy(n => n === 'Cash & Bank');
+    const bsAR = bsAssetBy(n => n === 'Accounts Receivable');
+    const bsInventory = bsAssetBy(n => n === 'Inventory' || n.startsWith('Inventory - '));
+    const bsAdvances = bsAssetBy(n => n === 'Employee Advances');
     const bsTotalAssets = bsCashBank + bsAR + bsInventory + bsAdvances;
-
-    const bsAP = getBSAmount('Accounts Payable', 'LIABILITY');
+    const bsAP = -bsAssetBy(n => n === 'Accounts Payable');
     const bsTotalLiabilities = bsAP;
     const bsEquity = bsTotalAssets - bsTotalLiabilities;
 
@@ -361,7 +229,7 @@ export async function GET(request: Request) {
             totalRevenue: plTotalRevenue,
             cogs: plCogs,
             grossProfit: plGrossProfit,
-            operatingExpenses: plFactoryExpenses,
+            operatingExpenses: plOpex,
             netProfit: plNetProfit
           },
           bs: {
@@ -376,7 +244,7 @@ export async function GET(request: Request) {
           }
         },
         expenseBreakdown: expenseData,
-        monthlyTrends: dynamicData, // Re-used same key for frontend compatibility
+        monthlyTrends: dynamicData,
         overallYield: yieldPercent,
         netAmount,
         totalReceivables,
@@ -392,23 +260,15 @@ export async function GET(request: Request) {
           predictedScrapValue: Number(predictedScrapValue)
         },
         paymentAnalytics: {
-          customers: {
-            avgDays: customerAvgDays,
-            slowestDays: customerSlowestDays,
-            completedOrders: customerCompleted
-          },
-          suppliers: {
-            avgDays: supplierAvgDays,
-            slowestDays: supplierSlowestDays,
-            completedOrders: supplierCompleted
-          }
+          customers: waitStats(paidSales),
+          suppliers: waitStats(paidPurchases)
         },
         metrics: {
-           totalRevenue: totalTimeframeRevenue,
-           totalGrossProfit: totalTimeframeGross,
-           totalNetProfit: totalTimeframeNet,
-           totalExpenses: pureExpenses,
-           avgProfitPerTon
+          totalRevenue: totalTimeframeRevenue,
+          totalGrossProfit: totalTimeframeGross,
+          totalNetProfit: totalTimeframeNet,
+          totalExpenses: pureExpenses,
+          avgProfitPerTon
         }
       }
     });

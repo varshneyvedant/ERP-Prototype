@@ -3,17 +3,26 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcrypt';
 
-interface LoginAttempt {
-  count: number;
-  lastAttempt: number;
-  lockedUntil?: number;
-}
-
-// In-memory rate limiting map for brute-force protection
-const loginAttempts = new Map<string, LoginAttempt>();
+// Brute-force protection is persisted in the database (LoginAttempt) so it works across
+// serverless instances. (The previous in-memory Map reset on every cold start / instance.)
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 Minutes
 const WINDOW_DURATION_MS = 15 * 60 * 1000;  // 15 Minutes
+
+async function registerFailure(key: string, now: Date, previous: { count: number; lastAttempt: Date } | null): Promise<never> {
+  const count = previous && now.getTime() - previous.lastAttempt.getTime() < WINDOW_DURATION_MS ? previous.count + 1 : 1;
+  const locked = count >= MAX_FAILED_ATTEMPTS;
+  const lockedUntil = locked ? new Date(now.getTime() + LOCKOUT_DURATION_MS) : null;
+  await prisma.loginAttempt.upsert({
+    where: { key },
+    create: { key, count, lastAttempt: now, lockedUntil },
+    update: { count, lastAttempt: now, lockedUntil }
+  });
+  if (locked) {
+    throw new Error('SECURITY_LOCKOUT: 5 failed attempts detected. Terminal locked for 15 minutes.');
+  }
+  throw new Error(`INVALID_CREDENTIALS: Invalid username or password (${MAX_FAILED_ATTEMPTS - count} attempt(s) remaining).`);
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -29,12 +38,12 @@ export const authOptions: NextAuthOptions = {
         }
 
         const key = credentials.username.toLowerCase().trim();
-        const now = Date.now();
-        const attempt = loginAttempts.get(key);
+        const now = new Date();
+        const attempt = await prisma.loginAttempt.findUnique({ where: { key } });
 
         // 1. Check if user is currently locked out
-        if (attempt?.lockedUntil && attempt.lockedUntil > now) {
-          const remainingMinutes = Math.ceil((attempt.lockedUntil - now) / 60000);
+        if (attempt?.lockedUntil && attempt.lockedUntil.getTime() > now.getTime()) {
+          const remainingMinutes = Math.ceil((attempt.lockedUntil.getTime() - now.getTime()) / 60000);
           throw new Error(`SECURITY_LOCKOUT: Account locked due to repeated failed attempts. Please retry in ${remainingMinutes} minute(s).`);
         }
 
@@ -45,44 +54,16 @@ export const authOptions: NextAuthOptions = {
         if (!user) {
           // Constant-time: prevent user enumeration via timing
           await bcrypt.compare(credentials.password, '$2b$10$dummyhashtopreventtimingattacks000000000000000');
-          
-          const currentCount = (attempt && (now - attempt.lastAttempt < WINDOW_DURATION_MS)) ? attempt.count + 1 : 1;
-          const isLocked = currentCount >= MAX_FAILED_ATTEMPTS;
-
-          loginAttempts.set(key, {
-            count: currentCount,
-            lastAttempt: now,
-            lockedUntil: isLocked ? now + LOCKOUT_DURATION_MS : undefined
-          });
-
-          if (isLocked) {
-            throw new Error('SECURITY_LOCKOUT: 5 failed attempts detected. Terminal locked for 15 minutes.');
-          }
-
-          throw new Error(`INVALID_CREDENTIALS: Invalid username or password (${MAX_FAILED_ATTEMPTS - currentCount} attempt(s) remaining).`);
+          return registerFailure(key, now, attempt);
         }
 
         const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
-
         if (!isPasswordValid) {
-          const currentCount = (attempt && (now - attempt.lastAttempt < WINDOW_DURATION_MS)) ? attempt.count + 1 : 1;
-          const isLocked = currentCount >= MAX_FAILED_ATTEMPTS;
-
-          loginAttempts.set(key, {
-            count: currentCount,
-            lastAttempt: now,
-            lockedUntil: isLocked ? now + LOCKOUT_DURATION_MS : undefined
-          });
-
-          if (isLocked) {
-            throw new Error('SECURITY_LOCKOUT: 5 failed attempts detected. Terminal locked for 15 minutes.');
-          }
-
-          throw new Error(`INVALID_CREDENTIALS: Invalid username or password (${MAX_FAILED_ATTEMPTS - currentCount} attempt(s) remaining).`);
+          return registerFailure(key, now, attempt);
         }
 
         // On successful authentication, reset failed attempts
-        loginAttempts.delete(key);
+        if (attempt) await prisma.loginAttempt.delete({ where: { key } }).catch(() => {});
 
         return {
           id: user.id,

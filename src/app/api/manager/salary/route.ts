@@ -80,6 +80,19 @@ export async function POST(request: Request) {
         }
       });
 
+      // Mirror into Expenses (gross) so dashboards / cash-in-hand / expense breakdown stay correct.
+      // Journal is posted below under 'Salary Expense' (this row deliberately has no journal of its own).
+      await tx.expense.create({
+        data: {
+          date: now,
+          category: 'Salaries',
+          amount: totalGross,
+          description: `Salary ${monthYear} - ${employee.name}`,
+          expenseMonth: monthYear,
+          status: 'PAID'
+        }
+      });
+
       const lines: { accountName: string; accountType: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'; debit: number; credit: number; }[] = [
         { accountName: 'Salary Expense', accountType: 'EXPENSE', debit: totalGross, credit: 0 },
       ];

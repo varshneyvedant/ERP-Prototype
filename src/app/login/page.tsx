@@ -3,24 +3,14 @@
 import { useState, useEffect } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { Lock, ShieldCheck, User, Eye, EyeOff, AlertTriangle, ShieldAlert, Cpu, Sparkles } from 'lucide-react';
+import { ShieldCheck, User, ShieldAlert, Cpu, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [capsLockActive, setCapsLockActive] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // Detect Caps Lock status
-  const handleKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.getModifierState) {
-      setCapsLockActive(e.getModifierState('CapsLock'));
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,8 +20,7 @@ export default function LoginPage() {
     try {
       const result = await signIn('credentials', {
         redirect: false,
-        username: username.trim(),
-        password
+        username: username.trim()
       });
 
       if (result?.error) {
@@ -129,44 +118,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Password Input */}
-            <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <label htmlFor="password" className="block text-xs font-semibold text-gray-300 uppercase tracking-wider">
-                  Access Key / Password
-                </label>
-                {capsLockActive && (
-                  <span className="text-[10px] text-yellow-400 font-bold flex items-center gap-1">
-                    <AlertTriangle size={11} /> CAPS LOCK ON
-                  </span>
-                )}
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 z-10">
-                  <Lock size={18} />
-                </div>
-                <input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  style={{ paddingLeft: '2.85rem', paddingRight: '2.85rem' }}
-                  className="w-full py-3 bg-[#161822] border border-[#2d3142] focus:border-orange-500 text-white rounded-xl text-sm font-medium transition-colors outline-none"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  onKeyUp={handleKeyUp}
-                  onKeyDown={handleKeyUp}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-white transition-colors cursor-pointer z-10"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
+
 
             {/* Submit Button */}
             <button

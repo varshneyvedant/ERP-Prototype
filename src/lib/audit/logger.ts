@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+
+
 
 interface AuditLogOptions {
   action: 'CREATE' | 'UPDATE' | 'DELETE' | 'DAY_CLOSE';

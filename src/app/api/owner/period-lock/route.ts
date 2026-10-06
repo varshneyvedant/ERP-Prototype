@@ -1,9 +1,10 @@
+import { getServerSession, authOptions } from '@/lib/mock-session';
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { logAudit } from '@/lib/audit/logger';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+
+
 
 export async function GET() {
   try {

@@ -1,8 +1,9 @@
+import { getServerSession, authOptions } from '@/lib/mock-session';
 import { OwnerDirectoryPostSchema } from '@/lib/validations';
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+
+
 
 
 import { prisma } from '@/lib/prisma';

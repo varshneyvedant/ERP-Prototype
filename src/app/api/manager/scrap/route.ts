@@ -1,8 +1,9 @@
+import { getServerSession, authOptions } from '@/lib/mock-session';
 import { OwnerScrapPostSchema } from '@/lib/validations';
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+
+
 import { prisma } from '@/lib/prisma';
 import { getStartDateFromTimeframe, Timeframe } from '@/lib/timeframe';
 import { logAudit } from '@/lib/audit/logger';

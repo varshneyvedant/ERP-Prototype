@@ -1,10 +1,11 @@
+import { getServerSession, authOptions } from '@/lib/mock-session';
 import { ManagerPaymentPostSchema } from '@/lib/validations';
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { logAudit } from '@/lib/audit/logger';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+
+
 import { assertPeriodNotLocked } from '@/lib/periodLock';
 import { postJournalEntry } from '@/lib/ledger/journal';
 import { checkIdempotency, completeIdempotency } from '@/lib/idempotency';
